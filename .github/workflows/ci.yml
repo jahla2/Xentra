@@ -1,0 +1,48 @@
+name: CI
+on:
+  pull_request:
+    branches: [development, main]
+  push:
+    branches: [development]
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [backend/control-plane, backend/runner]
+    defaults:
+      run:
+        working-directory: ${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+      - run: go test ./...
+      - run: go vet ./...
+  python:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/ai-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install -e '.[test]'
+      - run: pytest -q
+  ui:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm run build

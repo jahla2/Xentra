@@ -1,36 +1,10 @@
-const navigation = ['Overview', 'Environments', 'Incidents', 'Ask AI', 'Runners', 'Audit'];
-
-export function App() {
-  return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand"><span className="brand-mark">X</span>Xentra</div>
-        <nav>
-          {navigation.map((item, index) => (
-            <button className={index === 0 ? 'nav-item active' : 'nav-item'} key={item}>{item}</button>
-          ))}
-        </nav>
-      </aside>
-      <main className="content">
-        <header className="topbar">
-          <div>
-            <p className="eyebrow">DEVOPS COMMAND CENTER</p>
-            <h1>Infrastructure overview</h1>
-          </div>
-          <button className="primary-action">Ask Xentra</button>
-        </header>
-        <section className="metrics-grid">
-          <article className="metric-card"><span>Healthy</span><strong>0</strong><small>Connect your first environment</small></article>
-          <article className="metric-card"><span>Warnings</span><strong>0</strong><small>No active warnings</small></article>
-          <article className="metric-card"><span>Incidents</span><strong>0</strong><small>No open incidents</small></article>
-        </section>
-        <section className="empty-panel">
-          <div className="orb">X</div>
-          <h2>Connect an environment</h2>
-          <p>Add an Ubuntu/Linux host or Xentra Runner to start safe infrastructure discovery.</p>
-          <button className="primary-action">Add environment</button>
-        </section>
-      </main>
-    </div>
-  );
+import { FormEvent, useEffect, useState } from 'react';
+import { api, Environment, InvestigationResult } from './api';
+const nav=['Overview','Environments','Incidents','Ask AI','Runners','Audit'];
+export function App(){
+ const [environments,setEnvironments]=useState<Environment[]>([]); const [selected,setSelected]=useState(''); const [question,setQuestion]=useState('Why is the API down?'); const [result,setResult]=useState<InvestigationResult|null>(null); const [error,setError]=useState(''); const [loading,setLoading]=useState(false); const [name,setName]=useState('Local Ubuntu'); const [runnerUrl,setRunnerUrl]=useState('http://localhost:8090');
+ const refresh=async()=>{try{const items=await api.listEnvironments();setEnvironments(items);if(!selected&&items[0])setSelected(items[0].id)}catch(err){setError((err as Error).message)}}; useEffect(()=>{void refresh()},[]);
+ async function addEnvironment(event:FormEvent){event.preventDefault();setError('');setLoading(true);try{const env=await api.createEnvironment({name,type:'production',runnerUrl});await refresh();setSelected(env.id)}catch(err){setError((err as Error).message)}finally{setLoading(false)}}
+ async function investigate(event:FormEvent){event.preventDefault();if(!selected)return;setLoading(true);setError('');setResult(null);try{setResult(await api.investigate(selected,question))}catch(err){setError((err as Error).message)}finally{setLoading(false)}}
+ return <div className="shell"><aside className="sidebar"><div className="brand"><span>X</span>Xentra</div><nav>{nav.map((item,i)=><button key={item} className={i===0?'nav active':'nav'}>{item}</button>)}</nav></aside><main className="main"><header><div><p className="eyebrow">DEVOPS COMMAND CENTER</p><h1>Infrastructure overview</h1></div><span className="status">● Control plane</span></header>{error&&<div className="error">{error}</div>}<section className="grid metrics"><article><small>Environments</small><strong>{environments.length}</strong><span>Connected runners</span></article><article><small>Incidents</small><strong>0</strong><span>No open incidents</span></article><article><small>AI investigations</small><strong>{result?1:0}</strong><span>Current session</span></article></section><section className="grid workbench"><div className="panel"><div className="panel-title"><h2>Environments</h2><span>Runner discovery</span></div>{environments.length===0?<p className="muted">Connect the local Xentra Runner to discover Linux and Docker capabilities.</p>:environments.map(env=><button className={`env ${selected===env.id?'selected':''}`} key={env.id} onClick={()=>setSelected(env.id)}><span className="dot"/><div><b>{env.name}</b><small>{env.hostname||env.runnerUrl}</small><em>{env.os} · {env.capabilities.join(' · ')||'basic'}</em></div></button>)}<form className="stack" onSubmit={addEnvironment}><input value={name} onChange={e=>setName(e.target.value)} placeholder="Environment name"/><input value={runnerUrl} onChange={e=>setRunnerUrl(e.target.value)} placeholder="Runner URL"/><button className="primary" disabled={loading}>Connect environment</button></form></div><div className="panel ai"><div className="panel-title"><h2>Ask Xentra</h2><span>Read-only investigation</span></div><form className="stack" onSubmit={investigate}><select value={selected} onChange={e=>setSelected(e.target.value)}><option value="">Select environment</option>{environments.map(env=><option value={env.id} key={env.id}>{env.name}</option>)}</select><textarea value={question} onChange={e=>setQuestion(e.target.value)}/><button className="primary" disabled={!selected||loading}>{loading?'Investigating…':'Investigate'}</button></form>{result&&<div className="finding"><div className="confidence">{result.confidence} confidence</div><h3>{result.probableRootCause}</h3><p>{result.summary}</p><b>Recommended action</b><p>{result.recommendedAction}</p><details><summary>Evidence ({result.evidence.length})</summary>{result.evidence.map((item,i)=><pre key={i}>{item.source}{'\n'}{item.output}</pre>)}</details></div>}</div></section></main></div>
 }
