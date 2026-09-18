@@ -23,8 +23,10 @@ type RunnerTask struct {
 	RunnerID  string            `json:"runnerId"`
 	Tool      string            `json:"tool"`
 	Arguments map[string]string `json:"arguments"`
-	Status    string            `json:"status"`
-	CreatedAt time.Time         `json:"createdAt"`
+	Status      string            `json:"status"`
+	TraceParent string            `json:"traceParent,omitempty"`
+	TraceState  string            `json:"traceState,omitempty"`
+	CreatedAt   time.Time         `json:"createdAt"`
 	ClaimedAt *time.Time        `json:"claimedAt,omitempty"`
 	CompletedAt *time.Time      `json:"completedAt,omitempty"`
 	Result    RunnerTaskResult  `json:"result"`
