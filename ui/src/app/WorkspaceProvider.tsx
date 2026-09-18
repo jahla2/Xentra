@@ -217,7 +217,7 @@ export function WorkspaceProvider({children}:{children:React.ReactNode}){
 
  const value=useMemo<WorkspaceContextValue>(()=>({
   principal,authReady,loading,error,projects,environments,incidents,audit,
-  selectedEnvironmentId,question,investigation,latestIncident,action,githubSetup,runnerEnrollment,runnerEnrollment,
+  selectedEnvironmentId,question,investigation,latestIncident,action,githubSetup,runnerEnrollment,
   isOwner:principal?.role==='owner',
   setSelectedEnvironmentId,setQuestion,
   clearError:()=>setError(''),
@@ -227,7 +227,7 @@ export function WorkspaceProvider({children}:{children:React.ReactNode}){
   createIncident,connectGitHub,proposeAction,approveAction,
  }),[
   principal,authReady,loading,error,projects,environments,incidents,audit,
-  selectedEnvironmentId,question,investigation,latestIncident,action,githubSetup,
+  selectedEnvironmentId,question,investigation,latestIncident,action,githubSetup,runnerEnrollment,
  ]);
 
  return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
