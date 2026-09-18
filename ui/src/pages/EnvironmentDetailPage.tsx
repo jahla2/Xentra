@@ -40,6 +40,7 @@ export function EnvironmentDetailPage(){
     <h3>{environment.hostname||environment.sshHost||environment.runnerUrl||'Runner not checked in yet'}</h3>
     <p>{environment.type} · {environment.connectionType} · {environment.os||'unknown OS'}</p>
     <p>Health endpoint: {environment.healthUrl||'Not configured'}</p>
+    {environment.connectionType==='aws_ssm'&&<p>AWS SSM target: {environment.awsRegion} · {environment.awsInstanceId}</p>}
     <p>{environment.capabilities.length?environment.capabilities.join(' · '):'No capabilities discovered yet'}</p>
    </div>
   </section>
