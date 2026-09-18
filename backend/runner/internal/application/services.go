@@ -20,6 +20,9 @@ func (s *DiscoveryService) Discover(ctx context.Context) domain.Discovery {
 	caps := []string{}
 	if _, err := s.exec.Run(ctx, "docker", "--version"); err == nil { caps = append(caps, "docker") }
 	if _, err := s.exec.Run(ctx, "systemctl", "--version"); err == nil { caps = append(caps, "systemd") }
+	if _, err := s.exec.Run(ctx, "git", "--version"); err == nil { caps = append(caps, "git") }
+	if _, err := s.exec.Run(ctx, "curl", "--version"); err == nil { caps = append(caps, "http") }
+	if _, err := s.exec.Run(ctx, "getent", "--version"); err == nil { caps = append(caps, "dns") }
 	return domain.Discovery{OS: runtime.GOOS, Hostname: strings.TrimSpace(host), Capabilities: caps}
 }
 
