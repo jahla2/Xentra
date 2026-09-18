@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"regexp"
 	"runtime"
 	"strings"
@@ -26,6 +27,7 @@ type ToolService struct { exec Executor }
 func NewToolService(exec Executor) *ToolService { return &ToolService{exec: exec} }
 
 var safeToolTargetPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.@:-]*$`)
+var safeCommitPattern = regexp.MustCompile(`^[A-Fa-f0-9]{7,64}$`)
 
 func (s *ToolService) Execute(ctx context.Context, tool string, args map[string]string) domain.ToolResult {
 	var name string
@@ -74,6 +76,32 @@ func (s *ToolService) Execute(ctx context.Context, tool string, args map[string]
 		service := args["service"]
 		if !safeToolTarget(service) { return domain.ToolResult{Tool: tool, Success: false, Error: "valid service is required"} }
 		name, commandArgs = "journalctl", []string{"-u", service, "-n", "200", "--no-pager"}
+	case "git.status":
+		repoPath, ok := safeRepoPath(args["path"])
+		if !ok { return domain.ToolResult{Tool: tool, Success: false, Error: "valid repository path is required"} }
+		name, commandArgs = "git", []string{"-C", repoPath, "status", "--short", "--branch"}
+	case "git.log":
+		repoPath, ok := safeRepoPath(args["path"])
+		if !ok { return domain.ToolResult{Tool: tool, Success: false, Error: "valid repository path is required"} }
+		name, commandArgs = "git", []string{"-C", repoPath, "log", "-n", "10", "--oneline", "--decorate"}
+	case "git.diff":
+		repoPath, ok := safeRepoPath(args["path"])
+		if !ok { return domain.ToolResult{Tool: tool, Success: false, Error: "valid repository path is required"} }
+		name, commandArgs = "git", []string{"-C", repoPath, "diff", "--stat"}
+	case "git.show_commit":
+		repoPath, ok := safeRepoPath(args["path"])
+		if !ok { return domain.ToolResult{Tool: tool, Success: false, Error: "valid repository path is required"} }
+		commit := strings.TrimSpace(args["commit"])
+		if !safeCommitPattern.MatchString(commit) { return domain.ToolResult{Tool: tool, Success: false, Error: "valid commit SHA is required"} }
+		name, commandArgs = "git", []string{"-C", repoPath, "show", "--stat", "--oneline", "--decorate", "--no-renames", commit}
+	case "http.health_check":
+		targetURL := strings.TrimSpace(args["url"])
+		if !safeHTTPURL(targetURL) { return domain.ToolResult{Tool: tool, Success: false, Error: "valid http/https URL is required"} }
+		name, commandArgs = "curl", []string{"--fail", "--silent", "--show-error", "--location", "--max-time", "8", "-o", "/dev/null", "-w", "%{http_code}", targetURL}
+	case "dns.lookup":
+		host := strings.TrimSpace(args["host"])
+		if !safeToolTarget(host) { return domain.ToolResult{Tool: tool, Success: false, Error: "valid hostname is required"} }
+		name, commandArgs = "getent", []string{"hosts", host}
 	default:
 		return domain.ToolResult{Tool: tool, Success: false, Error: "tool is not allowlisted"}
 	}
@@ -87,4 +115,23 @@ func (s *ToolService) Execute(ctx context.Context, tool string, args map[string]
 
 func safeToolTarget(value string) bool {
 	return value != "" && safeToolTargetPattern.MatchString(value)
+}
+
+func safeRepoPath(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		value = "."
+	}
+	if strings.ContainsAny(value, "\x00\r\n") {
+		return "", false
+	}
+	return value, true
+}
+
+func safeHTTPURL(value string) bool {
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Host == "" || parsed.User != nil {
+		return false
+	}
+	return parsed.Scheme == "http" || parsed.Scheme == "https"
 }
