@@ -7,4 +7,7 @@ def test_health_returns_ai_service_status() -> None:
     response = TestClient(app).get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "service": "ai-service"}
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["service"] == "ai-service"
+    assert payload["investigator"] in {"heuristic", "openai-compatible"}

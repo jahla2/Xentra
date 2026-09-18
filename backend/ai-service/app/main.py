@@ -1,33 +1,22 @@
 from fastapi import FastAPI
-from pydantic import BaseModel
 
-from app.investigator import investigate
+from app.investigator import build_engine_from_env
+from app.schemas import InvestigationFinding, InvestigationRequest
 
-app = FastAPI(title="Xentra AI Service", version="0.2.0")
 
-class Evidence(BaseModel):
-    source: str
-    output: str
-    success: bool
+app = FastAPI(title="Xentra AI Service", version="0.3.0")
+engine = build_engine_from_env()
 
-class Environment(BaseModel):
-    id: str
-    name: str
-    type: str
-    runnerUrl: str
-    os: str = ""
-    hostname: str = ""
-    capabilities: list[str] = []
-
-class InvestigationRequest(BaseModel):
-    environment: Environment
-    question: str
-    evidence: list[Evidence]
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status":"ok","service":"ai-service"}
+    return {
+        "status": "ok",
+        "service": "ai-service",
+        "investigator": engine.provider_name,
+    }
 
-@app.post("/v1/investigate")
-def run_investigation(request: InvestigationRequest) -> dict[str, str]:
-    return investigate(request.question, [item.model_dump() for item in request.evidence])
+
+@app.post("/v1/investigate", response_model=InvestigationFinding)
+def run_investigation(request: InvestigationRequest) -> InvestigationFinding:
+    return engine.investigate(request)
