@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jahla2/Xentra/backend/runner/internal/domain"
+	"github.com/jahla2/Xentra/backend/runner/internal/observability"
 )
 
 type Config struct {
@@ -82,7 +83,7 @@ func NewClient(config Config) (*Client, error) {
 
 	return &Client{
 		baseURL: parsed.String(), runnerID: config.RunnerID, runnerToken: config.RunnerToken,
-		http: &http.Client{Timeout: 30 * time.Second, Transport: transport},
+		http: &http.Client{Timeout: 30 * time.Second, Transport: observability.NewTracingTransport(transport)},
 	}, nil
 }
 
