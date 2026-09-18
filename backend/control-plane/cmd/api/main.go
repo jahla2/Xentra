@@ -72,6 +72,7 @@ func main() {
 		log.Fatal(err)
 	}
 	sshClient := clients.NewSSHClient(credentialService)
+	ssmClient := clients.NewSSMClient()
 	runnerControlService := application.NewRunnerControlService(
 		stores.runnerControl,
 		stores.environments,
@@ -79,7 +80,7 @@ func main() {
 		credentialService,
 	)
 	outboundRunnerClient := clients.NewOutboundRunnerClient(runnerControlService)
-	connections := clients.NewConnectionClient(runnerClient, sshClient, outboundRunnerClient)
+	connections := clients.NewConnectionClient(runnerClient, sshClient, ssmClient, outboundRunnerClient)
 	aiClient := clients.NewAIHTTPClient(envOrDefault("XENTRA_AI_URL", "http://localhost:8000"))
 	githubAuth, err := clients.NewGitHubAuthProvider(
 		credentialService,
