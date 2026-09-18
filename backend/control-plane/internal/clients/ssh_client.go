@@ -261,11 +261,23 @@ func (c *SSHClient) VerifyAction(ctx context.Context, env domain.Environment, ac
 
 	output, runErr := runSSH(client, command)
 	normalized := strings.TrimSpace(strings.ToLower(output))
-	healthy := runErr == nil && (normalized == "true" || normalized == "active" || normalized == "running")
+	statusHealthy := runErr == nil && (normalized == "true" || normalized == "active" || normalized == "running")
+	evidence := []domain.Evidence{{Source: source, Output: outputOrError(output, runErr), Success: runErr == nil, OccurredAt: time.Now().UTC()}}
+	healthy := statusHealthy
+	if env.HealthURL != "" {
+		healthCommand, commandErr := sshReadToolCommand(domain.ToolRequest{Tool: "http.health_check", Arguments: map[string]string{"url": env.HealthURL}})
+		if commandErr != nil {
+			return domain.VerificationResult{}, commandErr
+		}
+		healthOutput, healthErr := runSSH(client, healthCommand)
+		healthSuccess := healthErr == nil
+		healthy = statusHealthy && httpHealthHealthy(healthOutput, healthSuccess)
+		evidence = append(evidence, domain.Evidence{Source: "http.health_check:" + env.HealthURL, Output: outputOrError(healthOutput, healthErr), Success: healthSuccess, OccurredAt: time.Now().UTC()})
+	}
 	return domain.VerificationResult{
 		Healthy: healthy,
-		Summary: verificationSummary(healthy, target),
-		Evidence: []domain.Evidence{{Source: source, Output: outputOrError(output, runErr), Success: runErr == nil}},
+		Summary: verificationSummaryForEnvironment(healthy, target, env.HealthURL),
+		Evidence: evidence,
 	}, nil
 }
 
