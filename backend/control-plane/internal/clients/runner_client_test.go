@@ -45,3 +45,29 @@ func TestMVPReadToolsRemainAllowlisted(t *testing.T) {
 		}
 	}
 }
+
+
+func TestHTTPHealthHealthyRequiresSuccessful2xxOr3xx(t *testing.T) {
+	for _, item := range []struct{
+		output string
+		success bool
+		want bool
+	}{
+		{"200", true, true},
+		{"302", true, true},
+		{"500", false, false},
+		{"200", false, false},
+		{"ok", true, false},
+	} {
+		if got := httpHealthHealthy(item.output, item.success); got != item.want {
+			t.Fatalf("httpHealthHealthy(%q,%v)=%v want %v", item.output, item.success, got, item.want)
+		}
+	}
+}
+
+func TestVerificationSummaryMentionsConfiguredHealthEndpoint(t *testing.T) {
+	got := verificationSummaryForEnvironment(true, "api-prod", "https://api.example.com/health")
+	if got == "" || got == verificationSummary(true, "api-prod") {
+		t.Fatalf("expected health-aware verification summary, got %q", got)
+	}
+}
