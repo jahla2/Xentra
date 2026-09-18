@@ -33,7 +33,9 @@ type Task struct {
 	ID        string            `json:"id"`
 	RunnerID  string            `json:"runnerId"`
 	Tool      string            `json:"tool"`
-	Arguments map[string]string `json:"arguments"`
+	Arguments   map[string]string `json:"arguments"`
+	TraceParent string            `json:"traceParent,omitempty"`
+	TraceState  string            `json:"traceState,omitempty"`
 }
 
 type Client struct {
