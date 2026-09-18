@@ -200,18 +200,10 @@ func (m *httpMetrics) ServeHTTP(w http.ResponseWriter, r *http.Request, token st
 	requests := m.requests.Load()
 	durationSeconds := float64(m.durationNanos.Load()) / float64(time.Second)
 	_, _ = fmt.Fprintf(w,
-		"# TYPE xentra_http_requests_total counter
-xentra_http_requests_total %d
-"+
-			"# TYPE xentra_http_errors_total counter
-xentra_http_errors_total %d
-"+
-			"# TYPE xentra_http_inflight gauge
-xentra_http_inflight %d
-"+
-			"# TYPE xentra_http_request_duration_seconds_total counter
-xentra_http_request_duration_seconds_total %.6f
-",
+		"# TYPE xentra_http_requests_total counter\nxentra_http_requests_total %d\n"+
+			"# TYPE xentra_http_errors_total counter\nxentra_http_errors_total %d\n"+
+			"# TYPE xentra_http_inflight gauge\nxentra_http_inflight %d\n"+
+			"# TYPE xentra_http_request_duration_seconds_total counter\nxentra_http_request_duration_seconds_total %.6f\n",
 		requests, m.errors.Load(), m.inflight.Load(), durationSeconds,
 	)
 }
