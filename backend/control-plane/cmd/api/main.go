@@ -8,7 +8,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -85,8 +87,37 @@ func main() {
 	)
 
 	addr := envOrDefault("XENTRA_CONTROL_ADDR", ":8080")
-	log.Printf("xentra control plane listening on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, router))
+	server := &http.Server{
+		Addr:              addr,
+		Handler:           router,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
+
+	serverErr := make(chan error, 1)
+	go func() {
+		log.Printf("xentra control plane listening on %s", addr)
+		serverErr <- server.ListenAndServe()
+	}()
+
+	signalContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	select {
+	case <-signalContext.Done():
+		shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancelShutdown()
+		if err := server.Shutdown(shutdownContext); err != nil {
+			log.Printf("control plane shutdown error: %v", err)
+		}
+	case err := <-serverErr:
+		if err != nil && err != http.ErrServerClosed {
+			log.Fatal(err)
+		}
+	}
 }
 
 func repositories(ctx context.Context) repositoriesSet {
