@@ -24,6 +24,7 @@ type repositoriesSet struct {
 	environments application.EnvironmentRepository
 	credentials  application.CredentialRepository
 	integrations application.RepositoryIntegrationRepository
+	webhookDeliveries application.WebhookDeliveryRepository
 	incidents    application.IncidentRepository
 	actions      application.ActionRepository
 	audit        application.AuditRepository
@@ -60,13 +61,14 @@ func main() {
 	investigationService := application.NewInvestigationService(stores.environments, connections, aiClient)
 	integrationService := application.NewIntegrationService(stores.integrations, credentialService, stores.environments)
 	incidentService := application.NewIncidentService(stores.incidents, stores.integrations, investigationService, githubClient)
+	webhookService := application.NewGitHubWebhookService(stores.integrations, credentialService, stores.webhookDeliveries, incidentService)
 	actionService := application.NewActionService(stores.actions, stores.audit, stores.environments, stores.incidents, connections)
 
 	router := httpapi.NewRouter(
 		environmentService,
 		investigationService,
 		httpapi.Services{
-			Auth: authService, Projects: projectService, Integrations: integrationService,
+			Auth: authService, Projects: projectService, Integrations: integrationService, Webhooks: webhookService,
 			Incidents: incidentService, Actions: actionService,
 		},
 	)
@@ -86,6 +88,7 @@ func repositories(ctx context.Context) repositoriesSet {
 			environments: application.NewMemoryEnvironmentRepository(),
 			credentials:  application.NewMemoryCredentialRepository(),
 			integrations: application.NewMemoryIntegrationRepository(),
+			webhookDeliveries: application.NewMemoryWebhookDeliveryRepository(),
 			incidents:    application.NewMemoryIncidentRepository(),
 			actions:      application.NewMemoryActionRepository(),
 			audit:        application.NewMemoryAuditRepository(),
@@ -109,6 +112,7 @@ func repositories(ctx context.Context) repositoriesSet {
 		environments: persistence.NewPostgresEnvironmentRepository(db),
 		credentials:  persistence.NewPostgresCredentialRepository(db),
 		integrations: persistence.NewPostgresIntegrationRepository(db),
+		webhookDeliveries: persistence.NewPostgresWebhookDeliveryRepository(db),
 		incidents:    persistence.NewPostgresIncidentRepository(db),
 		actions:      persistence.NewPostgresActionRepository(db),
 		audit:        persistence.NewPostgresAuditRepository(db),

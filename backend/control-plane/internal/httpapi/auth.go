@@ -38,6 +38,9 @@ func isPublicRoute(r *http.Request) bool {
 	if r.Method == http.MethodPost && (r.URL.Path == "/api/auth/register" || r.URL.Path == "/api/auth/login") {
 		return true
 	}
+	if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/webhooks/github/") {
+		return true
+	}
 	return false
 }
 

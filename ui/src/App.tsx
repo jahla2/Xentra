@@ -1,5 +1,5 @@
 import {FormEvent,useEffect,useState} from 'react';
-import {api,ActionRequest,AuditEvent,AuthSession,CreateEnvironmentInput,Environment,Incident,InvestigationResult,Principal,Project} from './api';
+import {api,ActionRequest,AuditEvent,AuthSession,CreateEnvironmentInput,Environment,GitHubIntegrationSetup,Incident,InvestigationResult,Principal,Project} from './api';
 
 const nav=['Overview','Projects','Environments','Incidents','Ask AI','Approvals','Audit'];
 
@@ -23,6 +23,7 @@ export function App(){
  const[loading,setLoading]=useState(false);
  const[form,setForm]=useState<CreateEnvironmentInput>({projectId:'',name:'Production Ubuntu',type:'production',connectionType:'runner',runnerUrl:'http://localhost:8090',sshPort:22});
  const[github,setGitHub]=useState({owner:'',repo:'',accessToken:''});
+ const[githubSetup,setGitHubSetup]=useState<GitHubIntegrationSetup|null>(null);
  const[remediation,setRemediation]=useState({action:'docker.restart',target:'',reason:'Recover unhealthy service'});
 
  const refresh=async()=>{
@@ -63,7 +64,7 @@ export function App(){
  async function createProject(event:FormEvent){event.preventDefault();await run(()=>api.createProject(projectForm.name,projectForm.description),project=>{setProjectForm({name:'',description:''});setForm(current=>({...current,projectId:project.id}))})}
  async function addEnvironment(event:FormEvent){event.preventDefault();await run(()=>api.createEnvironment(form),env=>setSelected(env.id))}
  async function investigate(event:FormEvent){event.preventDefault();if(!selected)return;setResult(null);await run(()=>api.investigate(selected,question),setResult)}
- async function connectGitHub(event:FormEvent){event.preventDefault();if(!selected)return;await run(()=>api.connectGitHub(selected,github.owner,github.repo,github.accessToken),()=>setGitHub(current=>({...current,accessToken:''})))}
+ async function connectGitHub(event:FormEvent){event.preventDefault();if(!selected)return;setGitHubSetup(null);await run(()=>api.connectGitHub(selected,github.owner,github.repo,github.accessToken),setup=>{setGitHub(current=>({...current,accessToken:''}));setGitHubSetup(setup)})}
  async function createIncident(){if(!selected)return;await run(()=>api.createIncident(selected,question),incident=>{setLatestIncident(incident);setAction(null)})}
  async function proposeAction(event:FormEvent){event.preventDefault();if(!selected)return;await run(()=>api.proposeAction({incidentId:latestIncident?.id,environmentId:selected,action:remediation.action,target:remediation.target,reason:remediation.reason}),setAction)}
  async function approveAction(){if(!action)return;await run(()=>api.approveAction(action.id),setAction)}
@@ -138,6 +139,7 @@ export function App(){
     <div className="panel">
      <div className="panel-title"><h2>GitHub correlation</h2><span>{isOwner?'Encrypted credential':'Owner permission required'}</span></div>
      {isOwner&&<form className="stack" onSubmit={connectGitHub}><input value={github.owner} onChange={e=>setGitHub({...github,owner:e.target.value})} placeholder="GitHub owner"/><input value={github.repo} onChange={e=>setGitHub({...github,repo:e.target.value})} placeholder="Repository"/><input type="password" value={github.accessToken} onChange={e=>setGitHub({...github,accessToken:e.target.value})} placeholder="Access / installation token"/><button className="primary" disabled={!selected||loading}>Connect repository</button></form>}
+     {githubSetup&&<div className="finding"><div className="confidence">One-time webhook setup</div><p>Configure a GitHub webhook for <b>workflow_run</b> events using this path:</p><code>{githubSetup.webhookPath}</code><p>Webhook secret:</p><code>{githubSetup.webhookSecret}</code><p className="muted">Save this secret in GitHub now. Xentra stores only the encrypted copy and will not show it again after you dismiss this card.</p><button className="nav" onClick={()=>setGitHubSetup(null)}>I saved it</button></div>}
      {latestIncident&&<><h3>{latestIncident.rootCause}</h3><p>{latestIncident.status} · {latestIncident.confidence} confidence</p><details><summary>Timeline ({latestIncident.timeline.length})</summary>{latestIncident.timeline.map((event,i)=><p key={i}><b>{event.kind}</b> {event.summary}</p>)}</details></>}
     </div>
 
