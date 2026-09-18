@@ -87,6 +87,8 @@ func (s *EnvironmentService) Create(ctx context.Context, organizationID string, 
 		if input.RunnerURL == "" {
 			return domain.Environment{}, errors.New("runnerUrl is required for runner connections")
 		}
+	case "runner_outbound":
+		return domain.Environment{}, errors.New("use /api/runner-enrollments for outbound Runner environments")
 	case "ssh":
 		if input.SSHHost == "" || input.SSHUser == "" || input.SSHPrivateKey == "" {
 			return domain.Environment{}, errors.New("sshHost, sshUser and sshPrivateKey are required for ssh connections")
@@ -106,7 +108,7 @@ func (s *EnvironmentService) Create(ctx context.Context, organizationID string, 
 		}
 		env.CredentialID = credentialID
 	default:
-		return domain.Environment{}, errors.New("connectionType must be runner or ssh")
+		return domain.Environment{}, errors.New("connectionType must be runner, runner_outbound, or ssh")
 	}
 
 	discovered, err := s.discovery.Discover(ctx, env)
