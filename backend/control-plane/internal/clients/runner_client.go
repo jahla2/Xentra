@@ -26,7 +26,7 @@ type RunnerClient struct {
 var runnerReadTools = map[string]bool{
 	"system.info": true, "system.disk": true, "system.cpu": true, "system.memory": true,
 	"system.service_status": true, "system.journal": true,
-	"docker.list": true, "docker.logs": true, "docker.inspect": true, "docker.stats": true,
+	"docker.list": true, "docker.logs": true, "docker.inspect": true, "docker.stats": true, "docker.status": true,
 }
 
 func NewRunnerClient() *RunnerClient {
