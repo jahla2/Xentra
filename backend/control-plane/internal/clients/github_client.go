@@ -65,8 +65,7 @@ func (c *GitHubClient) fetchCommits(ctx context.Context, integration domain.Repo
 	}
 	events := make([]domain.TimelineEvent, 0, len(payload))
 	for _, item := range payload {
-		message := strings.Split(item.Commit.Message, "
-")[0]
+		message := strings.Split(item.Commit.Message, string(rune(10)))[0]
 		events = append(events, domain.TimelineEvent{Source: "github", Kind: "commit", Summary: message, URL: item.HTMLURL, OccurredAt: item.Commit.Author.Date})
 	}
 	return events, nil
