@@ -78,8 +78,8 @@ jobs:
         with:
           python-version: '3.13'
       - run: pip install -e ./backend/ai-service
-      - run: cd backend/control-plane && go mod download
-      - run: cd backend/runner && go mod download
+      - run: cd backend/control-plane && go mod tidy
+      - run: cd backend/runner && go mod tidy
       - name: Generate integration master key
         run: echo "XENTRA_MASTER_KEY=$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
       - name: Run real infrastructure smoke
