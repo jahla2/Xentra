@@ -80,7 +80,7 @@ func (s *RunnerControlService) CreateEnrollment(
 	env := domain.Environment{
 		ID: environmentID, OrganizationID: organizationID, ProjectID: projectID,
 		Name: name, Type: environmentType, ConnectionType: "runner_outbound",
-		Capabilities: []string{},
+		Containers: []string{}, Capabilities: []string{},
 	}
 	if err := s.environments.Save(ctx, env); err != nil {
 		return domain.RunnerEnrollment{}, err
