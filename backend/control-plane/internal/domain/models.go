@@ -17,12 +17,20 @@ type Environment struct {
 	CredentialID          string   `json:"credentialId,omitempty"`
 	OS                    string   `json:"os"`
 	Hostname              string   `json:"hostname"`
+	CPU                   string   `json:"cpu"`
+	Memory                string   `json:"memory"`
+	Disk                  string   `json:"disk"`
+	Containers            []string `json:"containers"`
 	Capabilities          []string `json:"capabilities"`
 }
 
 type Discovery struct {
 	OS           string   `json:"os"`
 	Hostname     string   `json:"hostname"`
+	CPU          string   `json:"cpu"`
+	Memory       string   `json:"memory"`
+	Disk         string   `json:"disk"`
+	Containers   []string `json:"containers"`
 	Capabilities []string `json:"capabilities"`
 }
 
