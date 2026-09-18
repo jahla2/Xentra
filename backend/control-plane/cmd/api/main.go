@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -18,6 +19,7 @@ import (
 )
 
 type repositoriesSet struct {
+	auth         application.AuthRepository
 	environments application.EnvironmentRepository
 	credentials  application.CredentialRepository
 	integrations application.RepositoryIntegrationRepository
@@ -32,11 +34,16 @@ func main() {
 	defer cancel()
 
 	stores := repositories(ctx)
-	if stores.db != nil { defer stores.db.Close() }
+	if stores.db != nil {
+		defer stores.db.Close()
+	}
 
 	box, err := clients.NewAESSecretBox(masterKey(stores.db != nil))
-	if err != nil { log.Fatal(err) }
+	if err != nil {
+		log.Fatal(err)
+	}
 	credentialService := application.NewCredentialService(stores.credentials, box)
+	authService := application.NewAuthService(stores.auth, sessionTTL())
 
 	runnerClient := clients.NewRunnerClient()
 	sshClient := clients.NewSSHClient(credentialService)
@@ -46,14 +53,17 @@ func main() {
 
 	environmentService := application.NewEnvironmentService(stores.environments, connections, credentialService)
 	investigationService := application.NewInvestigationService(stores.environments, connections, aiClient)
-	integrationService := application.NewIntegrationService(stores.integrations, credentialService)
+	integrationService := application.NewIntegrationService(stores.integrations, credentialService, stores.environments)
 	incidentService := application.NewIncidentService(stores.incidents, stores.integrations, investigationService, githubClient)
 	actionService := application.NewActionService(stores.actions, stores.audit, stores.environments, stores.incidents, connections)
 
 	router := httpapi.NewRouter(
 		environmentService,
 		investigationService,
-		httpapi.Services{Integrations: integrationService, Incidents: incidentService, Actions: actionService},
+		httpapi.Services{
+			Auth: authService, Integrations: integrationService,
+			Incidents: incidentService, Actions: actionService,
+		},
 	)
 
 	addr := envOrDefault("XENTRA_CONTROL_ADDR", ":8080")
@@ -66,6 +76,7 @@ func repositories(ctx context.Context) repositoriesSet {
 	if databaseURL == "" {
 		log.Print("XENTRA_DATABASE_URL not set; using in-memory repositories")
 		return repositoriesSet{
+			auth:         application.NewMemoryAuthRepository(),
 			environments: application.NewMemoryEnvironmentRepository(),
 			credentials:  application.NewMemoryCredentialRepository(),
 			integrations: application.NewMemoryIntegrationRepository(),
@@ -76,11 +87,18 @@ func repositories(ctx context.Context) repositoriesSet {
 	}
 
 	db, err := sql.Open("pgx", databaseURL)
-	if err != nil { log.Fatal(err) }
-	if err := db.PingContext(ctx); err != nil { log.Fatal(err) }
-	if err := persistence.Migrate(ctx, db); err != nil { log.Fatal(err) }
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := db.PingContext(ctx); err != nil {
+		log.Fatal(err)
+	}
+	if err := persistence.Migrate(ctx, db); err != nil {
+		log.Fatal(err)
+	}
 
 	return repositoriesSet{
+		auth:         persistence.NewPostgresAuthRepository(db),
 		environments: persistence.NewPostgresEnvironmentRepository(db),
 		credentials:  persistence.NewPostgresCredentialRepository(db),
 		integrations: persistence.NewPostgresIntegrationRepository(db),
@@ -91,22 +109,38 @@ func repositories(ctx context.Context) repositoriesSet {
 	}
 }
 
+func sessionTTL() time.Duration {
+	hours, err := strconv.Atoi(envOrDefault("XENTRA_SESSION_TTL_HOURS", "24"))
+	if err != nil || hours < 1 || hours > 720 {
+		log.Fatal("XENTRA_SESSION_TTL_HOURS must be between 1 and 720")
+	}
+	return time.Duration(hours) * time.Hour
+}
+
 func masterKey(persistent bool) []byte {
 	encoded := os.Getenv("XENTRA_MASTER_KEY")
 	if encoded != "" {
 		key, err := base64.StdEncoding.DecodeString(encoded)
-		if err != nil || len(key) != 32 { log.Fatal("XENTRA_MASTER_KEY must be base64 for exactly 32 bytes") }
+		if err != nil || len(key) != 32 {
+			log.Fatal("XENTRA_MASTER_KEY must be base64 for exactly 32 bytes")
+		}
 		return key
 	}
-	if persistent { log.Fatal("XENTRA_MASTER_KEY is required when PostgreSQL persistence is enabled") }
+	if persistent {
+		log.Fatal("XENTRA_MASTER_KEY is required when PostgreSQL persistence is enabled")
+	}
 
 	key := make([]byte, 32)
-	if _, err := rand.Read(key); err != nil { log.Fatal(err) }
+	if _, err := rand.Read(key); err != nil {
+		log.Fatal(err)
+	}
 	log.Print("XENTRA_MASTER_KEY not set; generated ephemeral development key")
 	return key
 }
 
 func envOrDefault(name, fallback string) string {
-	if value := os.Getenv(name); value != "" { return value }
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
 	return fallback
 }

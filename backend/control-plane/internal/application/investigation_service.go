@@ -10,6 +10,7 @@ import (
 type ToolClient interface {
 	Collect(context.Context, domain.Environment) ([]domain.Evidence, error)
 }
+
 type AIClient interface {
 	Investigate(context.Context, domain.InvestigationRequest) (domain.InvestigationResult, error)
 }
@@ -24,8 +25,8 @@ func NewInvestigationService(repo EnvironmentRepository, tools ToolClient, ai AI
 	return &InvestigationService{repo: repo, tools: tools, ai: ai}
 }
 
-func (s *InvestigationService) Investigate(ctx context.Context, environmentID, question string) (domain.InvestigationResult, error) {
-	env, err := s.repo.Get(ctx, environmentID)
+func (s *InvestigationService) Investigate(ctx context.Context, organizationID, environmentID, question string) (domain.InvestigationResult, error) {
+	env, err := s.repo.Get(ctx, organizationID, environmentID)
 	if err != nil {
 		return domain.InvestigationResult{}, err
 	}
