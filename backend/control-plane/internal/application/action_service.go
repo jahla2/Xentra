@@ -138,6 +138,26 @@ func (s *ActionService) Approve(ctx context.Context, organizationID, id, approve
 	return item, nil
 }
 
+func (s *ActionService) Reject(ctx context.Context, organizationID, id, rejectedBy string) (domain.ActionRequest, error) {
+	if organizationID == "" || rejectedBy == "" {
+		return domain.ActionRequest{}, errors.New("organization and rejector are required")
+	}
+	item, err := s.actions.Get(ctx, organizationID, id)
+	if err != nil {
+		return domain.ActionRequest{}, err
+	}
+	if item.Status != "pending_approval" {
+		return domain.ActionRequest{}, errors.New("action is not pending approval")
+	}
+	item.Status = "rejected"
+	item.RejectedBy = rejectedBy
+	if err := s.actions.Save(ctx, item); err != nil {
+		return domain.ActionRequest{}, err
+	}
+	_ = s.appendAudit(ctx, organizationID, item.EnvironmentID, rejectedBy, "action_rejected", item.Action+" "+item.Target, true)
+	return item, nil
+}
+
 func (s *ActionService) Audit(ctx context.Context, organizationID string) ([]domain.AuditEvent, error) {
 	return s.audit.List(ctx, organizationID)
 }
