@@ -11,6 +11,7 @@ export type VerificationResult={healthy:boolean;summary:string;evidence:Evidence
 export type ActionRequest={id:string;incidentId?:string;environmentId:string;action:string;target:string;reason:string;status:string;approvedBy?:string;result?:string;verification:VerificationResult;createdAt:string;executedAt?:string};
 export type AuditEvent={id:string;environmentId:string;actor:string;eventType:string;detail:string;success:boolean;createdAt:string};
 export type RepositoryIntegration={id:string;environmentId:string;provider:string;owner:string;repo:string};
+export type GitHubIntegrationSetup={integration:RepositoryIntegration;webhookPath:string;webhookSecret:string};
 export type CreateEnvironmentInput={projectId:string;name:string;type:string;connectionType:'runner'|'ssh';runnerUrl?:string;sshHost?:string;sshPort?:number;sshUser?:string;sshHostKeyFingerprint?:string;sshPrivateKey?:string;sshPassphrase?:string};
 
 const API_URL=import.meta.env.VITE_XENTRA_API_URL??'http://localhost:8080';
@@ -49,7 +50,7 @@ export const api={
  listEnvironments:()=>request<Environment[]>('/api/environments'),
  createEnvironment:(input:CreateEnvironmentInput)=>request<Environment>('/api/environments',{method:'POST',body:JSON.stringify(input)}),
  investigate:(environmentId:string,question:string)=>request<InvestigationResult>('/api/investigations',{method:'POST',body:JSON.stringify({environmentId,question})}),
- connectGitHub:(environmentId:string,owner:string,repo:string,accessToken:string)=>request<RepositoryIntegration>('/api/integrations/github',{method:'POST',body:JSON.stringify({environmentId,owner,repo,accessToken})}),
+ connectGitHub:(environmentId:string,owner:string,repo:string,accessToken:string)=>request<GitHubIntegrationSetup>('/api/integrations/github',{method:'POST',body:JSON.stringify({environmentId,owner,repo,accessToken})}),
  listIncidents:()=>request<Incident[]>('/api/incidents'),
  createIncident:(environmentId:string,question:string)=>request<Incident>('/api/incidents',{method:'POST',body:JSON.stringify({environmentId,question})}),
  proposeAction:(input:{incidentId?:string;environmentId:string;action:string;target:string;reason:string})=>request<ActionRequest>('/api/actions',{method:'POST',body:JSON.stringify(input)}),

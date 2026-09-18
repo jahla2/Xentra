@@ -3,13 +3,20 @@ package domain
 import "time"
 
 type RepositoryIntegration struct {
-	ID             string `json:"id"`
-	OrganizationID string `json:"-"`
-	EnvironmentID  string `json:"environmentId"`
-	Provider       string `json:"provider"`
-	Owner          string `json:"owner"`
-	Repo           string `json:"repo"`
-	CredentialID   string `json:"-"`
+	ID                        string `json:"id"`
+	OrganizationID            string `json:"-"`
+	EnvironmentID             string `json:"environmentId"`
+	Provider                  string `json:"provider"`
+	Owner                     string `json:"owner"`
+	Repo                      string `json:"repo"`
+	CredentialID              string `json:"-"`
+	WebhookSecretCredentialID string `json:"-"`
+}
+
+type GitHubIntegrationSetup struct {
+	Integration   RepositoryIntegration `json:"integration"`
+	WebhookPath   string                `json:"webhookPath"`
+	WebhookSecret string                `json:"webhookSecret"`
 }
 
 type TimelineEvent struct {
