@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -38,6 +39,8 @@ type CreateEnvironmentInput struct {
 	SSHPrivateKey         string `json:"sshPrivateKey"`
 	SSHPassphrase         string `json:"sshPassphrase"`
 	HealthURL             string `json:"healthUrl"`
+	AWSRegion             string `json:"awsRegion"`
+	AWSInstanceID         string `json:"awsInstanceId"`
 }
 
 type EnvironmentService struct {
@@ -80,7 +83,7 @@ func (s *EnvironmentService) Create(ctx context.Context, organizationID string, 
 		ID: id, OrganizationID: organizationID, ProjectID: input.ProjectID, Name: input.Name, Type: input.Type,
 		ConnectionType: connectionType, RunnerURL: input.RunnerURL, SSHHost: input.SSHHost,
 		SSHPort: input.SSHPort, SSHUser: input.SSHUser, SSHHostKeyFingerprint: input.SSHHostKeyFingerprint,
-		HealthURL: strings.TrimSpace(input.HealthURL),
+		HealthURL: strings.TrimSpace(input.HealthURL), AWSRegion: strings.TrimSpace(input.AWSRegion), AWSInstanceID: strings.TrimSpace(input.AWSInstanceID),
 	}
 	if env.Type == "" {
 		env.Type = "development"
@@ -96,6 +99,10 @@ func (s *EnvironmentService) Create(ctx context.Context, organizationID string, 
 		}
 	case "runner_outbound":
 		return domain.Environment{}, errors.New("use /api/runner-enrollments for outbound Runner environments")
+	case "aws_ssm":
+		if !validAWSRegion(env.AWSRegion) || !validAWSInstanceID(env.AWSInstanceID) {
+			return domain.Environment{}, errors.New("awsRegion and a valid EC2 awsInstanceId are required for aws_ssm connections")
+		}
 	case "ssh":
 		if input.SSHHost == "" || input.SSHUser == "" || input.SSHPrivateKey == "" {
 			return domain.Environment{}, errors.New("sshHost, sshUser and sshPrivateKey are required for ssh connections")
@@ -115,7 +122,7 @@ func (s *EnvironmentService) Create(ctx context.Context, organizationID string, 
 		}
 		env.CredentialID = credentialID
 	default:
-		return domain.Environment{}, errors.New("connectionType must be runner, runner_outbound, or ssh")
+		return domain.Environment{}, errors.New("connectionType must be runner, runner_outbound, aws_ssm, or ssh")
 	}
 
 	discovered, err := s.discovery.Discover(ctx, env)
@@ -184,4 +191,16 @@ func validHealthURL(value string) bool {
 		return false
 	}
 	return parsed.Scheme == "http" || parsed.Scheme == "https"
+}
+
+
+var awsRegionPattern = regexp.MustCompile(`^[a-z]{2}(?:-[a-z0-9]+)+-[0-9]+$`)
+var awsInstanceIDPattern = regexp.MustCompile(`^i-[0-9A-Fa-f]{8,32}$`)
+
+func validAWSRegion(value string) bool {
+	return awsRegionPattern.MatchString(strings.TrimSpace(value))
+}
+
+func validAWSInstanceID(value string) bool {
+	return awsInstanceIDPattern.MatchString(strings.TrimSpace(value))
 }
