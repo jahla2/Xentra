@@ -30,11 +30,24 @@ type InvestigationService struct {
 	repo     EnvironmentRepository
 	tools    ToolClient
 	ai       AIClient
+	memory   IncidentMemory
 	redactor *EvidenceRedactor
 }
 
-func NewInvestigationService(repo EnvironmentRepository, tools ToolClient, ai AIClient) *InvestigationService {
-	return &InvestigationService{repo: repo, tools: tools, ai: ai, redactor: NewEvidenceRedactor()}
+func NewInvestigationService(
+	repo EnvironmentRepository,
+	tools ToolClient,
+	ai AIClient,
+	memory ...IncidentMemory,
+) *InvestigationService {
+	var incidentMemory IncidentMemory
+	if len(memory) > 0 {
+		incidentMemory = memory[0]
+	}
+	return &InvestigationService{
+		repo: repo, tools: tools, ai: ai, memory: incidentMemory,
+		redactor: NewEvidenceRedactor(),
+	}
 }
 
 func (s *InvestigationService) Investigate(ctx context.Context, organizationID, environmentID, question string) (domain.InvestigationResult, error) {
@@ -51,6 +64,20 @@ func (s *InvestigationService) InvestigateWithEvidence(ctx context.Context, orga
 		return domain.InvestigationResult{}, fmt.Errorf("collect evidence: %w", err)
 	}
 	evidence = append(evidence, contextualEvidence...)
+	if s.memory != nil {
+		memoryEvidence, memoryErr := s.memory.Recall(
+			ctx, organizationID, environmentID, question, defaultMemoryRecallLimit,
+		)
+		if memoryErr != nil {
+			memoryEvidence = []domain.Evidence{{
+				Source: "incident.memory",
+				Output: memoryErr.Error(),
+				Success: false,
+				OccurredAt: time.Now().UTC(),
+			}}
+		}
+		evidence = append(evidence, memoryEvidence...)
+	}
 	safeEvidence := s.redactor.RedactEvidence(normalizeEvidenceTiming(evidence))
 	availableTools := availableInvestigationTools(env)
 	seen := map[string]bool{}

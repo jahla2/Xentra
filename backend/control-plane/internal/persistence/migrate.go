@@ -27,8 +27,11 @@ var githubWebhooksMigration string
 //go:embed migrations/007_github_app.sql
 var githubAppMigration string
 
+//go:embed migrations/008_incident_memory.sql
+var incidentMemoryMigration string
+
 func Migrate(ctx context.Context, db *sql.DB) error {
-	for _, migration := range []string{coreMigration, incidentMigration, actionsAuditMigration, authOrgMigration, projectsMigration, githubWebhooksMigration, githubAppMigration} {
+	for _, migration := range []string{coreMigration, incidentMigration, actionsAuditMigration, authOrgMigration, projectsMigration, githubWebhooksMigration, githubAppMigration, incidentMemoryMigration} {
 		if _, err := db.ExecContext(ctx, migration); err != nil {
 			return err
 		}

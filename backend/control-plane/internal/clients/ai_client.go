@@ -37,6 +37,26 @@ func (c *AIHTTPClient) Next(ctx context.Context, request domain.AgentInvestigati
 	return decision, nil
 }
 
+func (c *AIHTTPClient) Embed(ctx context.Context, texts []string) ([][]float64, error) {
+	if len(texts) == 0 {
+		return nil, nil
+	}
+	var response struct {
+		Vectors    [][]float64 `json:"vectors"`
+		Dimensions int         `json:"dimensions"`
+	}
+	if err := c.postJSON(ctx, "/v1/embed", map[string]any{"texts": texts}, &response); err != nil {
+		return nil, err
+	}
+	if response.Dimensions != domain.IncidentMemoryDimensions {
+		return nil, fmt.Errorf("ai service embedding dimensions %d, expected %d", response.Dimensions, domain.IncidentMemoryDimensions)
+	}
+	if len(response.Vectors) != len(texts) {
+		return nil, fmt.Errorf("ai service returned %d vectors for %d texts", len(response.Vectors), len(texts))
+	}
+	return response.Vectors, nil
+}
+
 func (c *AIHTTPClient) postJSON(ctx context.Context, path string, requestBody, responseBody any) error {
 	body, err := json.Marshal(requestBody)
 	if err != nil {

@@ -1,9 +1,12 @@
 from fastapi import FastAPI
 
+from app.embeddings import EMBEDDING_DIMENSIONS, build_embedding_engine_from_env
 from app.investigator import build_engine_from_env
 from app.schemas import (
     AgentDecision,
     AgentInvestigationRequest,
+    EmbeddingRequest,
+    EmbeddingResponse,
     InvestigationFinding,
     InvestigationRequest,
 )
@@ -11,6 +14,7 @@ from app.schemas import (
 
 app = FastAPI(title="Xentra AI Service", version="0.4.0")
 engine = build_engine_from_env()
+embedding_engine = build_embedding_engine_from_env()
 
 
 @app.get("/health")
@@ -19,6 +23,7 @@ def health() -> dict[str, str]:
         "status": "ok",
         "service": "ai-service",
         "investigator": engine.provider_name,
+        "embeddings": embedding_engine.provider_name,
     }
 
 
@@ -30,3 +35,13 @@ def run_investigation(request: InvestigationRequest) -> InvestigationFinding:
 @app.post("/v1/investigate/next", response_model=AgentDecision)
 def next_investigation_step(request: AgentInvestigationRequest) -> AgentDecision:
     return engine.next_step(request)
+
+
+@app.post("/v1/embed", response_model=EmbeddingResponse)
+def embed(request: EmbeddingRequest) -> EmbeddingResponse:
+    vectors = embedding_engine.embed(request.texts)
+    return EmbeddingResponse(
+        vectors=vectors,
+        dimensions=EMBEDDING_DIMENSIONS,
+        provider=embedding_engine.provider_name,
+    )

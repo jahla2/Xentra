@@ -62,3 +62,13 @@ class AgentDecision(BaseModel):
         if self.mode == "tools" and not self.toolRequests:
             raise ValueError("tools decisions require at least one tool request")
         return self
+
+
+class EmbeddingRequest(BaseModel):
+    texts: list[str] = Field(min_length=1, max_length=32)
+
+
+class EmbeddingResponse(BaseModel):
+    vectors: list[list[float]]
+    dimensions: int
+    provider: str
