@@ -1,25 +1,8 @@
 package application
-
-import (
-	"context"
-	"testing"
-
-	"github.com/jahla2/Xentra/backend/control-plane/internal/domain"
-)
-
-type fakeDiscoveryClient struct{ result domain.Discovery }
-
-func (f fakeDiscoveryClient) Discover(context.Context, string) (domain.Discovery, error) { return f.result, nil }
-
-func TestCreateEnvironmentDiscoversCapabilities(t *testing.T) {
-	repo := NewMemoryEnvironmentRepository()
-	discovery := fakeDiscoveryClient{result: domain.Discovery{OS: "linux", Hostname: "prod-01", Capabilities: []string{"docker", "systemd"}}}
-	service := NewEnvironmentService(repo, discovery)
-	env, err := service.Create(context.Background(), CreateEnvironmentInput{Name: "Production", Type: "production", RunnerURL: "http://runner:8090"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if env.Name != "Production" || env.Hostname != "prod-01" || len(env.Capabilities) != 2 {
-		t.Fatalf("unexpected environment: %#v", env)
-	}
-}
+import("context";"testing";"github.com/jahla2/Xentra/backend/control-plane/internal/domain")
+type fakeDiscoveryClient struct{result domain.Discovery}
+func(f fakeDiscoveryClient)Discover(_ context.Context,_ domain.Environment)(domain.Discovery,error){return f.result,nil}
+type fakeSSHCredentialWriter struct{id string}
+func(f fakeSSHCredentialWriter)StoreSSH(context.Context,domain.SSHCredential)(string,error){return f.id,nil}
+func TestCreateRunnerEnvironmentDiscoversCapabilities(t *testing.T){repo:=NewMemoryEnvironmentRepository();d:=fakeDiscoveryClient{domain.Discovery{OS:"linux",Hostname:"prod-01",Capabilities:[]string{"docker","systemd"}}};s:=NewEnvironmentService(repo,d,nil);env,err:=s.Create(context.Background(),CreateEnvironmentInput{Name:"Production",Type:"production",ConnectionType:"runner",RunnerURL:"http://runner:8090"});if err!=nil{t.Fatal(err)};if env.ConnectionType!="runner"||env.Hostname!="prod-01"||len(env.Capabilities)!=2{t.Fatalf("unexpected: %#v",env)}}
+func TestCreateSSHEnvironmentStoresCredentialReferenceOnly(t *testing.T){repo:=NewMemoryEnvironmentRepository();d:=fakeDiscoveryClient{domain.Discovery{OS:"linux",Hostname:"ssh-prod",Capabilities:[]string{"docker"}}};s:=NewEnvironmentService(repo,d,fakeSSHCredentialWriter{id:"cred-safe"});env,err:=s.Create(context.Background(),CreateEnvironmentInput{Name:"SSH Production",ConnectionType:"ssh",SSHHost:"10.0.0.10",SSHUser:"ubuntu",SSHPrivateKey:"PRIVATE",SSHHostKeyFingerprint:"SHA256:test"});if err!=nil{t.Fatal(err)};if env.CredentialID!="cred-safe"||env.SSHPort!=22{t.Fatalf("unexpected: %#v",env)}}
