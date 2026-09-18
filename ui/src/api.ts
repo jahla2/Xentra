@@ -16,6 +16,7 @@ export type RunnerEnrollment={environment:Environment;runnerId:string;runnerToke
 export type CreateEnvironmentInput={projectId:string;name:string;type:string;connectionType:'runner'|'ssh';runnerUrl?:string;sshHost?:string;sshPort?:number;sshUser?:string;sshHostKeyFingerprint?:string;sshPrivateKey?:string;sshPassphrase?:string};
 
 const API_URL=import.meta.env.VITE_XENTRA_API_URL??'http://localhost:8080';
+const RUNNER_CONTROL_URL=import.meta.env.VITE_XENTRA_RUNNER_CONTROL_URL??'http://localhost:8081';
 const TOKEN_KEY='xentra_session';
 let authToken=typeof window!=='undefined'?window.sessionStorage.getItem(TOKEN_KEY):null;
 
@@ -58,5 +59,6 @@ export const api={
  proposeAction:(input:{incidentId?:string;environmentId:string;action:string;target:string;reason:string})=>request<ActionRequest>('/api/actions',{method:'POST',body:JSON.stringify(input)}),
  approveAction:(id:string)=>request<ActionRequest>(`/api/actions/${id}/approve`,{method:'POST'}),
  listAudit:()=>request<AuditEvent[]>('/api/audit'),
- baseUrl:()=>API_URL
+ baseUrl:()=>API_URL,
+ runnerControlUrl:()=>RUNNER_CONTROL_URL
 };
