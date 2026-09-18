@@ -29,6 +29,7 @@ type repositoriesSet struct {
 	webhookDeliveries application.WebhookDeliveryRepository
 	incidents    application.IncidentRepository
 	incidentMemory application.IncidentMemoryRepository
+	runnerControl application.RunnerControlRepository
 	actions      application.ActionRepository
 	audit        application.AuditRepository
 	db           *sql.DB
@@ -55,7 +56,9 @@ func main() {
 		log.Fatal(err)
 	}
 	sshClient := clients.NewSSHClient(credentialService)
-	connections := clients.NewConnectionClient(runnerClient, sshClient)
+	runnerControlService := application.NewRunnerControlService(stores.runnerControl, stores.environments, stores.projects, credentialService)
+	outboundRunnerClient := clients.NewOutboundRunnerClient(runnerControlService)
+	connections := clients.NewConnectionClient(runnerClient, sshClient, outboundRunnerClient)
 	aiClient := clients.NewAIHTTPClient(envOrDefault("XENTRA_AI_URL", "http://localhost:8000"))
 	githubAuth, err := clients.NewGitHubAuthProvider(
 		credentialService,
@@ -82,7 +85,7 @@ func main() {
 		investigationService,
 		httpapi.Services{
 			Auth: authService, Projects: projectService, Integrations: integrationService, Webhooks: webhookService,
-			Incidents: incidentService, Actions: actionService,
+			Runners: runnerControlService, Incidents: incidentService, Actions: actionService,
 		},
 	)
 
@@ -133,6 +136,7 @@ func repositories(ctx context.Context) repositoriesSet {
 			webhookDeliveries: application.NewMemoryWebhookDeliveryRepository(),
 			incidents:    application.NewMemoryIncidentRepository(),
 			incidentMemory: application.NewMemoryIncidentMemoryRepository(),
+			runnerControl: application.NewMemoryRunnerControlRepository(),
 			actions:      application.NewMemoryActionRepository(),
 			audit:        application.NewMemoryAuditRepository(),
 		}
@@ -158,6 +162,7 @@ func repositories(ctx context.Context) repositoriesSet {
 		webhookDeliveries: persistence.NewPostgresWebhookDeliveryRepository(db),
 		incidents:    persistence.NewPostgresIncidentRepository(db),
 		incidentMemory: persistence.NewPostgresIncidentMemoryRepository(db),
+		runnerControl: persistence.NewPostgresRunnerControlRepository(db),
 		actions:      persistence.NewPostgresActionRepository(db),
 		audit:        persistence.NewPostgresAuditRepository(db),
 		db:           db,
