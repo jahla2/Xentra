@@ -100,6 +100,15 @@ func (s *CredentialService) GetGitHubWebhookSecret(ctx context.Context, id strin
 	return string(raw), err
 }
 
+func (s *CredentialService) StoreRunnerToken(ctx context.Context, token string) (string, error) {
+	return s.StoreSecret(ctx, "runner-token", []byte(token))
+}
+
+func (s *CredentialService) GetRunnerToken(ctx context.Context, id string) (string, error) {
+	raw, err := s.GetSecret(ctx, id, "runner-token")
+	return string(raw), err
+}
+
 func newCredentialID() (string, error) {
 	buf := make([]byte, 16)
 	if _, err := rand.Read(buf); err != nil {

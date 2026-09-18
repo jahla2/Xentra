@@ -3,13 +3,17 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"database/sql"
 	"encoding/base64"
+	"errors"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,20 +22,27 @@ import (
 	"github.com/jahla2/Xentra/backend/control-plane/internal/clients"
 	"github.com/jahla2/Xentra/backend/control-plane/internal/httpapi"
 	"github.com/jahla2/Xentra/backend/control-plane/internal/persistence"
+	"github.com/jahla2/Xentra/backend/control-plane/internal/security"
 )
 
 type repositoriesSet struct {
-	auth         application.AuthRepository
-	projects     application.ProjectRepository
-	environments application.EnvironmentRepository
-	credentials  application.CredentialRepository
-	integrations application.RepositoryIntegrationRepository
-	webhookDeliveries application.WebhookDeliveryRepository
-	incidents    application.IncidentRepository
-	incidentMemory application.IncidentMemoryRepository
-	actions      application.ActionRepository
-	audit        application.AuditRepository
-	db           *sql.DB
+	auth                application.AuthRepository
+	projects            application.ProjectRepository
+	environments        application.EnvironmentRepository
+	credentials         application.CredentialRepository
+	integrations        application.RepositoryIntegrationRepository
+	webhookDeliveries   application.WebhookDeliveryRepository
+	incidents           application.IncidentRepository
+	incidentMemory      application.IncidentMemoryRepository
+	runnerControl       application.RunnerControlRepository
+	actions             application.ActionRepository
+	audit               application.AuditRepository
+	db                  *sql.DB
+}
+
+type serverFailure struct {
+	name string
+	err  error
 }
 
 func main() {
@@ -55,7 +66,14 @@ func main() {
 		log.Fatal(err)
 	}
 	sshClient := clients.NewSSHClient(credentialService)
-	connections := clients.NewConnectionClient(runnerClient, sshClient)
+	runnerControlService := application.NewRunnerControlService(
+		stores.runnerControl,
+		stores.environments,
+		stores.projects,
+		credentialService,
+	)
+	outboundRunnerClient := clients.NewOutboundRunnerClient(runnerControlService)
+	connections := clients.NewConnectionClient(runnerClient, sshClient, outboundRunnerClient)
 	aiClient := clients.NewAIHTTPClient(envOrDefault("XENTRA_AI_URL", "http://localhost:8000"))
 	githubAuth, err := clients.NewGitHubAuthProvider(
 		credentialService,
@@ -77,47 +95,98 @@ func main() {
 	webhookService := application.NewGitHubWebhookService(stores.integrations, credentialService, stores.webhookDeliveries, incidentService)
 	actionService := application.NewActionService(stores.actions, stores.audit, stores.environments, stores.incidents, connections)
 
-	router := httpapi.NewRouter(
+	apiRouter := httpapi.NewRouter(
 		environmentService,
 		investigationService,
 		httpapi.Services{
 			Auth: authService, Projects: projectService, Integrations: integrationService, Webhooks: webhookService,
-			Incidents: incidentService, Actions: actionService,
+			Runners: runnerControlService, Incidents: incidentService, Actions: actionService,
 		},
 	)
+	runnerRouter := httpapi.NewRunnerControlRouter(runnerControlService)
 
-	addr := envOrDefault("XENTRA_CONTROL_ADDR", ":8080")
-	server := &http.Server{
+	apiAddr := envOrDefault("XENTRA_CONTROL_ADDR", ":8080")
+	apiServer := newHTTPServer(apiAddr, apiRouter)
+
+	runnerAddr := strings.TrimSpace(os.Getenv("XENTRA_RUNNER_CONTROL_ADDR"))
+	var runnerServer *http.Server
+	if runnerAddr != "" {
+		runnerServer = newHTTPServer(runnerAddr, runnerRouter)
+	}
+
+	serverErr := make(chan serverFailure, 2)
+	go func() {
+		log.Printf("xentra control plane listening on %s", apiAddr)
+		serverErr <- serverFailure{name: "api", err: apiServer.ListenAndServe()}
+	}()
+	if runnerServer != nil {
+		go func() {
+			serverErr <- serverFailure{name: "runner-control", err: serveRunnerControl(runnerServer)}
+		}()
+	}
+
+	signalContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	var unexpected *serverFailure
+	select {
+	case <-signalContext.Done():
+	case failure := <-serverErr:
+		if failure.err != nil && !errors.Is(failure.err, http.ErrServerClosed) {
+			unexpected = &failure
+		}
+	}
+
+	shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancelShutdown()
+	if err := apiServer.Shutdown(shutdownContext); err != nil {
+		log.Printf("control plane shutdown error: %v", err)
+	}
+	if runnerServer != nil {
+		if err := runnerServer.Shutdown(shutdownContext); err != nil {
+			log.Printf("runner control shutdown error: %v", err)
+		}
+	}
+
+	if unexpected != nil {
+		log.Fatalf("%s server failed: %v", unexpected.name, unexpected.err)
+	}
+}
+
+func newHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
 		Addr:              addr,
-		Handler:           router,
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}
+}
 
-	serverErr := make(chan error, 1)
-	go func() {
-		log.Printf("xentra control plane listening on %s", addr)
-		serverErr <- server.ListenAndServe()
-	}()
-
-	signalContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	select {
-	case <-signalContext.Done():
-		shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancelShutdown()
-		if err := server.Shutdown(shutdownContext); err != nil {
-			log.Printf("control plane shutdown error: %v", err)
-		}
-	case err := <-serverErr:
-		if err != nil && err != http.ErrServerClosed {
-			log.Fatal(err)
-		}
+func serveRunnerControl(server *http.Server) error {
+	if envBool("XENTRA_RUNNER_CONTROL_INSECURE_DEV") {
+		log.Printf("xentra runner control listening on %s in explicit insecure development mode", server.Addr)
+		return server.ListenAndServe()
 	}
+
+	tlsConfig, err := security.ServerTLSConfig(
+		strings.TrimSpace(os.Getenv("XENTRA_RUNNER_CONTROL_TLS_CERT")),
+		strings.TrimSpace(os.Getenv("XENTRA_RUNNER_CONTROL_TLS_KEY")),
+		strings.TrimSpace(os.Getenv("XENTRA_RUNNER_CONTROL_CLIENT_CA")),
+	)
+	if err != nil {
+		return err
+	}
+	server.TLSConfig = tlsConfig
+
+	listener, err := net.Listen("tcp", server.Addr)
+	if err != nil {
+		return err
+	}
+	log.Printf("xentra runner control listening on %s with mutual TLS", server.Addr)
+	return server.Serve(tls.NewListener(listener, tlsConfig))
 }
 
 func repositories(ctx context.Context) repositoriesSet {
@@ -125,16 +194,17 @@ func repositories(ctx context.Context) repositoriesSet {
 	if databaseURL == "" {
 		log.Print("XENTRA_DATABASE_URL not set; using in-memory repositories")
 		return repositoriesSet{
-			auth:         application.NewMemoryAuthRepository(),
-			projects:     application.NewMemoryProjectRepository(),
-			environments: application.NewMemoryEnvironmentRepository(),
-			credentials:  application.NewMemoryCredentialRepository(),
-			integrations: application.NewMemoryIntegrationRepository(),
+			auth:              application.NewMemoryAuthRepository(),
+			projects:          application.NewMemoryProjectRepository(),
+			environments:      application.NewMemoryEnvironmentRepository(),
+			credentials:       application.NewMemoryCredentialRepository(),
+			integrations:      application.NewMemoryIntegrationRepository(),
 			webhookDeliveries: application.NewMemoryWebhookDeliveryRepository(),
-			incidents:    application.NewMemoryIncidentRepository(),
-			incidentMemory: application.NewMemoryIncidentMemoryRepository(),
-			actions:      application.NewMemoryActionRepository(),
-			audit:        application.NewMemoryAuditRepository(),
+			incidents:         application.NewMemoryIncidentRepository(),
+			incidentMemory:    application.NewMemoryIncidentMemoryRepository(),
+			runnerControl:     application.NewMemoryRunnerControlRepository(),
+			actions:           application.NewMemoryActionRepository(),
+			audit:             application.NewMemoryAuditRepository(),
 		}
 	}
 
@@ -150,17 +220,18 @@ func repositories(ctx context.Context) repositoriesSet {
 	}
 
 	return repositoriesSet{
-		auth:         persistence.NewPostgresAuthRepository(db),
-		projects:     persistence.NewPostgresProjectRepository(db),
-		environments: persistence.NewPostgresEnvironmentRepository(db),
-		credentials:  persistence.NewPostgresCredentialRepository(db),
-		integrations: persistence.NewPostgresIntegrationRepository(db),
+		auth:              persistence.NewPostgresAuthRepository(db),
+		projects:          persistence.NewPostgresProjectRepository(db),
+		environments:      persistence.NewPostgresEnvironmentRepository(db),
+		credentials:       persistence.NewPostgresCredentialRepository(db),
+		integrations:      persistence.NewPostgresIntegrationRepository(db),
 		webhookDeliveries: persistence.NewPostgresWebhookDeliveryRepository(db),
-		incidents:    persistence.NewPostgresIncidentRepository(db),
-		incidentMemory: persistence.NewPostgresIncidentMemoryRepository(db),
-		actions:      persistence.NewPostgresActionRepository(db),
-		audit:        persistence.NewPostgresAuditRepository(db),
-		db:           db,
+		incidents:         persistence.NewPostgresIncidentRepository(db),
+		incidentMemory:    persistence.NewPostgresIncidentMemoryRepository(db),
+		runnerControl:     persistence.NewPostgresRunnerControlRepository(db),
+		actions:           persistence.NewPostgresActionRepository(db),
+		audit:             persistence.NewPostgresAuditRepository(db),
+		db:                db,
 	}
 }
 
@@ -198,6 +269,15 @@ func envOrDefault(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func envBool(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func githubPrivateKey() string {

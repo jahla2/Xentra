@@ -24,6 +24,7 @@ type runtimeHTTPConfig struct {
 	authLimit      int
 	apiLimit       int
 	webhookLimit   int
+	runnerLimit    int
 	metricsToken   string
 	trustProxyHeaders bool
 }
@@ -38,6 +39,7 @@ func runtimeConfigFromEnv() runtimeHTTPConfig {
 		authLimit:      envInt("XENTRA_RATE_LIMIT_AUTH_PER_MINUTE", 20),
 		apiLimit:       envInt("XENTRA_RATE_LIMIT_API_PER_MINUTE", 600),
 		webhookLimit:   envInt("XENTRA_RATE_LIMIT_WEBHOOK_PER_MINUTE", 300),
+		runnerLimit:    envInt("XENTRA_RATE_LIMIT_RUNNER_PER_MINUTE", 2400),
 		metricsToken:   strings.TrimSpace(os.Getenv("XENTRA_METRICS_TOKEN")),
 		trustProxyHeaders: envBool("XENTRA_TRUST_PROXY_HEADERS", false),
 	}
@@ -47,11 +49,12 @@ func withProductionMiddleware(next http.Handler, metrics *httpMetrics, cfg runti
 	apiLimiter := newFixedWindowLimiter(cfg.apiLimit, time.Minute)
 	authLimiter := newFixedWindowLimiter(cfg.authLimit, time.Minute)
 	webhookLimiter := newFixedWindowLimiter(cfg.webhookLimit, time.Minute)
+	runnerLimiter := newFixedWindowLimiter(cfg.runnerLimit, time.Minute)
 
 	handler := withRequestLogging(next, metrics, cfg.trustProxyHeaders)
 	handler = withSecurityHeaders(handler)
 	handler = withRequestLimits(handler)
-	handler = withRateLimits(handler, apiLimiter, authLimiter, webhookLimiter, cfg.trustProxyHeaders)
+	handler = withRateLimits(handler, apiLimiter, authLimiter, webhookLimiter, runnerLimiter, cfg.trustProxyHeaders)
 	handler = withConfiguredCORS(handler, cfg.allowedOrigins)
 	return handler
 }
@@ -100,7 +103,7 @@ func withRequestLimits(next http.Handler) http.Handler {
 
 func withRateLimits(
 	next http.Handler,
-	api, auth, webhook *fixedWindowLimiter,
+	api, auth, webhook, runner *fixedWindowLimiter,
 	trustProxyHeaders bool,
 ) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -116,6 +119,8 @@ func withRateLimits(
 			limiter, scope = auth, "auth"
 		case strings.HasPrefix(r.URL.Path, "/api/webhooks/"):
 			limiter, scope = webhook, "webhook"
+		case strings.HasPrefix(r.URL.Path, "/api/runners/"):
+			limiter, scope = runner, "runner"
 		}
 		if !limiter.Allow(clientIP(r, trustProxyHeaders) + "|" + scope) {
 			w.Header().Set("Retry-After", "60")

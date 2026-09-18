@@ -1,5 +1,5 @@
 import {createContext,useContext,useEffect,useMemo,useState} from 'react';
-import {api,ActionRequest,AuditEvent,AuthSession,CreateEnvironmentInput,Environment,GitHubIntegrationSetup,Incident,InvestigationResult,Principal,Project} from '../api';
+import {api,ActionRequest,AuditEvent,AuthSession,CreateEnvironmentInput,Environment,GitHubIntegrationSetup,Incident,InvestigationResult,Principal,Project,RunnerEnrollment} from '../api';
 
 type AuthMode='login'|'register';
 type GitHubAuthMode='github_app'|'token';
@@ -19,17 +19,20 @@ type WorkspaceContextValue={
  latestIncident:Incident|null;
  action:ActionRequest|null;
  githubSetup:GitHubIntegrationSetup|null;
+ runnerEnrollment:RunnerEnrollment|null;
  isOwner:boolean;
  setSelectedEnvironmentId:(id:string)=>void;
  setQuestion:(value:string)=>void;
  clearError:()=>void;
  dismissGitHubSetup:()=>void;
+ dismissRunnerEnrollment:()=>void;
  refresh:()=>Promise<void>;
  authenticate:(mode:AuthMode,email:string,password:string,organizationName:string)=>Promise<void>;
  logout:()=>Promise<void>;
  createMember:(email:string,password:string)=>Promise<void>;
  createProject:(name:string,description:string)=>Promise<void>;
  createEnvironment:(input:CreateEnvironmentInput)=>Promise<void>;
+ createRunnerEnrollment:(projectId:string,name:string,type:string)=>Promise<void>;
  investigate:()=>Promise<void>;
  createIncident:()=>Promise<void>;
  connectGitHub:(owner:string,repo:string,authMode:GitHubAuthMode,accessToken:string)=>Promise<void>;
@@ -54,6 +57,7 @@ export function WorkspaceProvider({children}:{children:React.ReactNode}){
  const[latestIncident,setLatestIncident]=useState<Incident|null>(null);
  const[action,setAction]=useState<ActionRequest|null>(null);
  const[githubSetup,setGitHubSetup]=useState<GitHubIntegrationSetup|null>(null);
+ const[runnerEnrollment,setRunnerEnrollment]=useState<RunnerEnrollment|null>(null);
 
  async function refresh(){
   if(!principal)return;
@@ -134,6 +138,7 @@ export function WorkspaceProvider({children}:{children:React.ReactNode}){
   setLatestIncident(null);
   setAction(null);
   setGitHubSetup(null);
+  setRunnerEnrollment(null);
  }
 
  async function createMember(email:string,password:string){
@@ -146,6 +151,17 @@ export function WorkspaceProvider({children}:{children:React.ReactNode}){
 
  async function createEnvironment(input:CreateEnvironmentInput){
   await run(()=>api.createEnvironment(input),environment=>setSelectedEnvironmentId(environment.id));
+ }
+
+ async function createRunnerEnrollment(projectId:string,name:string,type:string){
+  setRunnerEnrollment(null);
+  await run(
+   ()=>api.createRunnerEnrollment(projectId,name,type),
+   enrollment=>{
+    setRunnerEnrollment(enrollment);
+    setSelectedEnvironmentId(enrollment.environment.id);
+   },
+  );
  }
 
  async function investigate(){
@@ -201,16 +217,17 @@ export function WorkspaceProvider({children}:{children:React.ReactNode}){
 
  const value=useMemo<WorkspaceContextValue>(()=>({
   principal,authReady,loading,error,projects,environments,incidents,audit,
-  selectedEnvironmentId,question,investigation,latestIncident,action,githubSetup,
+  selectedEnvironmentId,question,investigation,latestIncident,action,githubSetup,runnerEnrollment,
   isOwner:principal?.role==='owner',
   setSelectedEnvironmentId,setQuestion,
   clearError:()=>setError(''),
   dismissGitHubSetup:()=>setGitHubSetup(null),
-  refresh,authenticate,logout,createMember,createProject,createEnvironment,investigate,
+  dismissRunnerEnrollment:()=>setRunnerEnrollment(null),
+  refresh,authenticate,logout,createMember,createProject,createEnvironment,createRunnerEnrollment,investigate,
   createIncident,connectGitHub,proposeAction,approveAction,
  }),[
   principal,authReady,loading,error,projects,environments,incidents,audit,
-  selectedEnvironmentId,question,investigation,latestIncident,action,githubSetup,
+  selectedEnvironmentId,question,investigation,latestIncident,action,githubSetup,runnerEnrollment,
  ]);
 
  return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;

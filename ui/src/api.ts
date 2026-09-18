@@ -12,9 +12,11 @@ export type ActionRequest={id:string;incidentId?:string;environmentId:string;act
 export type AuditEvent={id:string;environmentId:string;actor:string;eventType:string;detail:string;success:boolean;createdAt:string};
 export type RepositoryIntegration={id:string;environmentId:string;provider:string;owner:string;repo:string;authMode:'github_app'|'token';installationId?:number};
 export type GitHubIntegrationSetup={integration:RepositoryIntegration;webhookPath:string;webhookSecret:string};
+export type RunnerEnrollment={environment:Environment;runnerId:string;runnerToken:string;controlPath:string};
 export type CreateEnvironmentInput={projectId:string;name:string;type:string;connectionType:'runner'|'ssh';runnerUrl?:string;sshHost?:string;sshPort?:number;sshUser?:string;sshHostKeyFingerprint?:string;sshPrivateKey?:string;sshPassphrase?:string};
 
 const API_URL=import.meta.env.VITE_XENTRA_API_URL??'http://localhost:8080';
+const RUNNER_CONTROL_URL=import.meta.env.VITE_XENTRA_RUNNER_CONTROL_URL??'http://localhost:8081';
 const TOKEN_KEY='xentra_session';
 let authToken=typeof window!=='undefined'?window.sessionStorage.getItem(TOKEN_KEY):null;
 
@@ -49,11 +51,14 @@ export const api={
  createProject:(name:string,description:string)=>request<Project>('/api/projects',{method:'POST',body:JSON.stringify({name,description})}),
  listEnvironments:()=>request<Environment[]>('/api/environments'),
  createEnvironment:(input:CreateEnvironmentInput)=>request<Environment>('/api/environments',{method:'POST',body:JSON.stringify(input)}),
+ createRunnerEnrollment:(projectId:string,name:string,type:string)=>request<RunnerEnrollment>('/api/runner-enrollments',{method:'POST',body:JSON.stringify({projectId,name,type})}),
  investigate:(environmentId:string,question:string)=>request<InvestigationResult>('/api/investigations',{method:'POST',body:JSON.stringify({environmentId,question})}),
  connectGitHub:(environmentId:string,owner:string,repo:string,authMode:'github_app'|'token',accessToken:string)=>request<GitHubIntegrationSetup>('/api/integrations/github',{method:'POST',body:JSON.stringify({environmentId,owner,repo,authMode,accessToken})}),
  listIncidents:()=>request<Incident[]>('/api/incidents'),
  createIncident:(environmentId:string,question:string)=>request<Incident>('/api/incidents',{method:'POST',body:JSON.stringify({environmentId,question})}),
  proposeAction:(input:{incidentId?:string;environmentId:string;action:string;target:string;reason:string})=>request<ActionRequest>('/api/actions',{method:'POST',body:JSON.stringify(input)}),
  approveAction:(id:string)=>request<ActionRequest>(`/api/actions/${id}/approve`,{method:'POST'}),
- listAudit:()=>request<AuditEvent[]>('/api/audit')
+ listAudit:()=>request<AuditEvent[]>('/api/audit'),
+ baseUrl:()=>API_URL,
+ runnerControlUrl:()=>RUNNER_CONTROL_URL
 };
