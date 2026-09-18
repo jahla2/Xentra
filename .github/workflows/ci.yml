@@ -95,6 +95,7 @@ jobs:
             /tmp/xentra-ai.log
             /tmp/xentra-runner.log
             /tmp/xentra-control.log
+            /tmp/xentra-otel.jsonl
 
   containers:
     runs-on: ubuntu-latest
