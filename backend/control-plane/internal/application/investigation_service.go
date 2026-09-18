@@ -151,6 +151,15 @@ func availableInvestigationTools(env domain.Environment) []string {
 	if caps["systemd"] {
 		tools = append(tools, "system.service_status", "system.journal")
 	}
+	if caps["git"] {
+		tools = append(tools, "git.status", "git.log", "git.diff", "git.show_commit")
+	}
+	if caps["http"] {
+		tools = append(tools, "http.health_check")
+	}
+	if caps["dns"] {
+		tools = append(tools, "dns.lookup")
+	}
 	return tools
 }
 
@@ -168,6 +177,7 @@ func validateInvestigationToolRequest(request domain.ToolRequest, available []st
 	requiredArgument := map[string]string{
 		"docker.logs": "container", "docker.inspect": "container", "docker.stats": "container",
 		"system.service_status": "service", "system.journal": "service",
+		"git.show_commit": "commit", "http.health_check": "url", "dns.lookup": "host",
 	}[request.Tool]
 	if requiredArgument != "" && strings.TrimSpace(request.Arguments[requiredArgument]) == "" {
 		return fmt.Errorf("tool %q requires argument %q", request.Tool, requiredArgument)
