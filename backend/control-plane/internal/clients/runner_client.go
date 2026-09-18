@@ -1,6 +1,115 @@
 package clients
-import("bytes";"context";"encoding/json";"fmt";"net/http";"strings";"time";"github.com/jahla2/Xentra/backend/control-plane/internal/domain")
-type RunnerClient struct{http *http.Client}
-func NewRunnerClient()*RunnerClient{return &RunnerClient{http:&http.Client{Timeout:8*time.Second}}}
-func(c *RunnerClient)Discover(ctx context.Context,env domain.Environment)(domain.Discovery,error){req,err:=http.NewRequestWithContext(ctx,http.MethodGet,strings.TrimRight(env.RunnerURL,"/")+"/v1/discovery",nil);if err!=nil{return domain.Discovery{},err};res,err:=c.http.Do(req);if err!=nil{return domain.Discovery{},err};defer res.Body.Close();if res.StatusCode!=http.StatusOK{return domain.Discovery{},fmt.Errorf("runner discovery status %d",res.StatusCode)};var result domain.Discovery;if err:=json.NewDecoder(res.Body).Decode(&result);err!=nil{return domain.Discovery{},err};return result,nil}
-func(c *RunnerClient)Collect(ctx context.Context,env domain.Environment)([]domain.Evidence,error){tools:=[]string{"system.info","system.disk","docker.list"};evidence:=make([]domain.Evidence,0,len(tools));for _,tool:=range tools{payload,_:=json.Marshal(map[string]any{"tool":tool,"arguments":map[string]string{}});req,_:=http.NewRequestWithContext(ctx,http.MethodPost,strings.TrimRight(env.RunnerURL,"/")+"/v1/tools/execute",bytes.NewReader(payload));req.Header.Set("Content-Type","application/json");res,err:=c.http.Do(req);if err!=nil{evidence=append(evidence,domain.Evidence{Source:tool,Success:false,Output:err.Error()});continue};var result struct{Success bool `json:"success"`;Output string `json:"output"`;Error string `json:"error"`};_ = json.NewDecoder(res.Body).Decode(&result);res.Body.Close();output:=result.Output;if output==""{output=result.Error};evidence=append(evidence,domain.Evidence{Source:tool,Success:result.Success,Output:output})};return evidence,nil}
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/jahla2/Xentra/backend/control-plane/internal/domain"
+)
+
+type RunnerClient struct{ http *http.Client }
+
+func NewRunnerClient() *RunnerClient {
+	return &RunnerClient{http: &http.Client{Timeout: 8 * time.Second}}
+}
+
+func (c *RunnerClient) Discover(ctx context.Context, env domain.Environment) (domain.Discovery, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(env.RunnerURL, "/")+"/v1/discovery", nil)
+	if err != nil { return domain.Discovery{}, err }
+	res, err := c.http.Do(req)
+	if err != nil { return domain.Discovery{}, err }
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK { return domain.Discovery{}, fmt.Errorf("runner discovery status %d", res.StatusCode) }
+	var result domain.Discovery
+	if err := json.NewDecoder(res.Body).Decode(&result); err != nil { return domain.Discovery{}, err }
+	return result, nil
+}
+
+func (c *RunnerClient) Collect(ctx context.Context, env domain.Environment) ([]domain.Evidence, error) {
+	tools := []string{"system.info", "system.disk", "docker.list"}
+	evidence := make([]domain.Evidence, 0, len(tools))
+	for _, tool := range tools {
+		result, err := c.executeTool(ctx, env, tool, map[string]string{})
+		if err != nil {
+			evidence = append(evidence, domain.Evidence{Source: tool, Success: false, Output: err.Error()})
+			continue
+		}
+		evidence = append(evidence, domain.Evidence{Source: tool, Success: result.Success, Output: result.Output})
+	}
+	return evidence, nil
+}
+
+func (c *RunnerClient) ExecuteAction(ctx context.Context, env domain.Environment, action, target string) (string, error) {
+	args, err := actionArguments(action, target)
+	if err != nil { return "", err }
+	result, err := c.executeTool(ctx, env, action, args)
+	if err != nil { return "", err }
+	if !result.Success { return result.Output, errors.New(result.Output) }
+	return result.Output, nil
+}
+
+func (c *RunnerClient) VerifyAction(ctx context.Context, env domain.Environment, action, target string) (domain.VerificationResult, error) {
+	var tool string
+	var args map[string]string
+	switch action {
+	case "docker.restart":
+		tool, args = "docker.status", map[string]string{"container": target}
+	case "system.service_restart":
+		tool, args = "system.service_status", map[string]string{"service": target}
+	default:
+		return domain.VerificationResult{}, errors.New("action is not verifiable")
+	}
+	result, err := c.executeTool(ctx, env, tool, args)
+	if err != nil { return domain.VerificationResult{}, err }
+	output := strings.TrimSpace(strings.ToLower(result.Output))
+	healthy := result.Success && (output == "true" || output == "active" || output == "running")
+	return domain.VerificationResult{
+		Healthy: healthy,
+		Summary: verificationSummary(healthy, target),
+		Evidence: []domain.Evidence{{Source: tool, Output: result.Output, Success: result.Success}},
+	}, nil
+}
+
+type runnerToolResult struct {
+	Tool    string `json:"tool"`
+	Success bool   `json:"success"`
+	Output  string `json:"output"`
+	Error   string `json:"error"`
+}
+
+func (c *RunnerClient) executeTool(ctx context.Context, env domain.Environment, tool string, args map[string]string) (runnerToolResult, error) {
+	payload, _ := json.Marshal(map[string]any{"tool": tool, "arguments": args})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(env.RunnerURL, "/")+"/v1/tools/execute", bytes.NewReader(payload))
+	if err != nil { return runnerToolResult{}, err }
+	req.Header.Set("Content-Type", "application/json")
+	res, err := c.http.Do(req)
+	if err != nil { return runnerToolResult{}, err }
+	defer res.Body.Close()
+	var result runnerToolResult
+	if err := json.NewDecoder(res.Body).Decode(&result); err != nil { return runnerToolResult{}, err }
+	if result.Output == "" { result.Output = result.Error }
+	if res.StatusCode >= 500 { return result, fmt.Errorf("runner status %d: %s", res.StatusCode, result.Output) }
+	return result, nil
+}
+
+func actionArguments(action, target string) (map[string]string, error) {
+	switch action {
+	case "docker.restart":
+		return map[string]string{"container": target}, nil
+	case "system.service_restart":
+		return map[string]string{"service": target}, nil
+	default:
+		return nil, errors.New("action is not allowlisted")
+	}
+}
+
+func verificationSummary(healthy bool, target string) string {
+	if healthy { return target + " is healthy after remediation" }
+	return target + " did not pass post-action verification"
+}
