@@ -1,9 +1,14 @@
 import {FormEvent,useEffect,useState} from 'react';
-import {api,ActionRequest,AuditEvent,CreateEnvironmentInput,Environment,Incident,InvestigationResult} from './api';
+import {api,ActionRequest,AuditEvent,AuthSession,CreateEnvironmentInput,Environment,Incident,InvestigationResult,Principal} from './api';
 
 const nav=['Overview','Environments','Incidents','Ask AI','Approvals','Audit'];
 
 export function App(){
+ const[principal,setPrincipal]=useState<Principal|null>(null);
+ const[authReady,setAuthReady]=useState(false);
+ const[authMode,setAuthMode]=useState<'login'|'register'>('login');
+ const[authForm,setAuthForm]=useState({email:'',password:'',organizationName:''});
+ const[memberForm,setMemberForm]=useState({email:'',password:''});
  const[environments,setEnvironments]=useState<Environment[]>([]);
  const[incidents,setIncidents]=useState<Incident[]>([]);
  const[audit,setAudit]=useState<AuditEvent[]>([]);
@@ -16,7 +21,7 @@ export function App(){
  const[loading,setLoading]=useState(false);
  const[form,setForm]=useState<CreateEnvironmentInput>({name:'Production Ubuntu',type:'production',connectionType:'runner',runnerUrl:'http://localhost:8090',sshPort:22});
  const[github,setGitHub]=useState({owner:'',repo:'',accessToken:''});
- const[remediation,setRemediation]=useState({action:'docker.restart',target:'',reason:'Recover unhealthy service',approvedBy:''});
+ const[remediation,setRemediation]=useState({action:'docker.restart',target:'',reason:'Recover unhealthy service'});
 
  const refresh=async()=>{
   try{
@@ -25,38 +30,81 @@ export function App(){
    if(!selected&&envItems[0])setSelected(envItems[0].id);
   }catch(err){setError((err as Error).message)}
  };
- useEffect(()=>{void refresh()},[]);
+
+ useEffect(()=>{
+  if(!api.hasToken()){setAuthReady(true);return}
+  api.me().then(setPrincipal).catch(()=>api.setToken(null)).finally(()=>setAuthReady(true));
+ },[]);
+
+ useEffect(()=>{if(principal)void refresh()},[principal]);
 
  const update=(patch:Partial<CreateEnvironmentInput>)=>setForm(current=>({...current,...patch}));
  async function run<T>(operation:()=>Promise<T>,onSuccess:(value:T)=>void){setLoading(true);setError('');try{onSuccess(await operation());await refresh()}catch(err){setError((err as Error).message)}finally{setLoading(false)}}
+
+ async function authenticate(event:FormEvent){
+  event.preventDefault();setLoading(true);setError('');
+  try{
+   let session:AuthSession;
+   if(authMode==='register')session=await api.register(authForm.email,authForm.password,authForm.organizationName);
+   else session=await api.login(authForm.email,authForm.password);
+   api.setToken(session.token);setPrincipal(session.principal);setAuthForm({email:'',password:'',organizationName:''});
+  }catch(err){setError((err as Error).message)}
+  finally{setLoading(false)}
+ }
+
+ async function logout(){
+  try{await api.logout()}catch{/* session may already be expired */}
+  api.setToken(null);setPrincipal(null);setEnvironments([]);setIncidents([]);setAudit([]);setSelected('');
+ }
+
  async function addEnvironment(event:FormEvent){event.preventDefault();await run(()=>api.createEnvironment(form),env=>setSelected(env.id))}
  async function investigate(event:FormEvent){event.preventDefault();if(!selected)return;setResult(null);await run(()=>api.investigate(selected,question),setResult)}
  async function connectGitHub(event:FormEvent){event.preventDefault();if(!selected)return;await run(()=>api.connectGitHub(selected,github.owner,github.repo,github.accessToken),()=>setGitHub(current=>({...current,accessToken:''})))}
  async function createIncident(){if(!selected)return;await run(()=>api.createIncident(selected,question),incident=>{setLatestIncident(incident);setAction(null)})}
  async function proposeAction(event:FormEvent){event.preventDefault();if(!selected)return;await run(()=>api.proposeAction({incidentId:latestIncident?.id,environmentId:selected,action:remediation.action,target:remediation.target,reason:remediation.reason}),setAction)}
- async function approveAction(){if(!action)return;await run(()=>api.approveAction(action.id,remediation.approvedBy),setAction)}
+ async function approveAction(){if(!action)return;await run(()=>api.approveAction(action.id),setAction)}
+ async function createMember(event:FormEvent){event.preventDefault();await run(()=>api.createMember(memberForm.email,memberForm.password),()=>setMemberForm({email:'',password:''}))}
+
+ if(!authReady)return <main className="main"><section className="panel"><p>Loading Xentra…</p></section></main>;
+
+ if(!principal)return <main className="main">
+  <section className="panel" style={{maxWidth:520,margin:'64px auto'}}>
+   <div className="brand"><span>X</span>Xentra</div>
+   <div className="panel-title"><h2>{authMode==='login'?'Sign in':'Create workspace'}</h2><span>Secure DevOps access</span></div>
+   {error&&<div className="error">{error}</div>}
+   <form className="stack" onSubmit={authenticate}>
+    <input type="email" value={authForm.email} onChange={e=>setAuthForm({...authForm,email:e.target.value})} placeholder="Email" required/>
+    <input type="password" value={authForm.password} onChange={e=>setAuthForm({...authForm,password:e.target.value})} placeholder="Password (10+ characters)" required/>
+    {authMode==='register'&&<input value={authForm.organizationName} onChange={e=>setAuthForm({...authForm,organizationName:e.target.value})} placeholder="Organization name" required/>}
+    <button className="primary" disabled={loading}>{loading?'Working…':authMode==='login'?'Sign in':'Create organization'}</button>
+   </form>
+   <button className="nav" onClick={()=>{setAuthMode(authMode==='login'?'register':'login');setError('')}}>{authMode==='login'?'Need an account? Register':'Already have an account? Sign in'}</button>
+  </section>
+ </main>;
+
+ const isOwner=principal.role==='owner';
 
  return <div className="shell">
-  <aside className="sidebar"><div className="brand"><span>X</span>Xentra</div><nav>{nav.map((item,i)=><button key={item} className={i===0?'nav active':'nav'}>{item}</button>)}</nav></aside>
+  <aside className="sidebar"><div className="brand"><span>X</span>Xentra</div><nav>{nav.map((item,i)=><button key={item} className={i===0?'nav active':'nav'}>{item}</button>)}</nav><p className="muted">{principal.organizationName}<br/>{principal.email}<br/>{principal.role}</p><button className="nav" onClick={()=>void logout()}>Sign out</button></aside>
   <main className="main">
-   <header><div><p className="eyebrow">DEVOPS COMMAND CENTER</p><h1>Infrastructure overview</h1></div><span className="status">● Control plane</span></header>
+   <header><div><p className="eyebrow">DEVOPS COMMAND CENTER</p><h1>Infrastructure overview</h1></div><span className="status">● {principal.organizationName}</span></header>
    {error&&<div className="error">{error}</div>}
    <section className="grid metrics">
-    <article><small>Environments</small><strong>{environments.length}</strong><span>Runner or SSH connected</span></article>
+    <article><small>Environments</small><strong>{environments.length}</strong><span>Organization scoped</span></article>
     <article><small>Incidents</small><strong>{incidents.filter(i=>i.status!=='resolved').length}</strong><span>Open / action required</span></article>
     <article><small>Audit events</small><strong>{audit.length}</strong><span>Recorded actions</span></article>
    </section>
 
    <section className="grid workbench">
     <div className="panel">
-     <div className="panel-title"><h2>Environments</h2><span>Secure discovery</span></div>
+     <div className="panel-title"><h2>Environments</h2><span>{isOwner?'Owner managed':'Read access'}</span></div>
      {environments.map(env=><button className={`env ${selected===env.id?'selected':''}`} key={env.id} onClick={()=>setSelected(env.id)}><span className="dot"/><div><b>{env.name}</b><small>{env.hostname||env.sshHost||env.runnerUrl}</small><em>{env.connectionType} · {env.os} · {env.capabilities.join(' · ')||'basic'}</em></div></button>)}
-     <form className="stack" onSubmit={addEnvironment}>
+     {isOwner&&<form className="stack" onSubmit={addEnvironment}>
       <input value={form.name} onChange={e=>update({name:e.target.value})} placeholder="Environment name"/>
       <select value={form.connectionType} onChange={e=>update({connectionType:e.target.value as 'runner'|'ssh'})}><option value="runner">Xentra Runner</option><option value="ssh">Ubuntu / Linux SSH</option></select>
       {form.connectionType==='runner'?<input value={form.runnerUrl??''} onChange={e=>update({runnerUrl:e.target.value})} placeholder="Runner URL"/>:<><input value={form.sshHost??''} onChange={e=>update({sshHost:e.target.value})} placeholder="Host / IP"/><input value={form.sshUser??''} onChange={e=>update({sshUser:e.target.value})} placeholder="SSH username"/><input value={form.sshHostKeyFingerprint??''} onChange={e=>update({sshHostKeyFingerprint:e.target.value})} placeholder="Host key fingerprint (SHA256:...)"/><textarea value={form.sshPrivateKey??''} onChange={e=>update({sshPrivateKey:e.target.value})} placeholder="SSH private key"/><input type="password" value={form.sshPassphrase??''} onChange={e=>update({sshPassphrase:e.target.value})} placeholder="Key passphrase (optional)"/></>}
       <button className="primary" disabled={loading}>Test & connect environment</button>
-     </form>
+     </form>}
     </div>
 
     <div className="panel ai">
@@ -72,25 +120,30 @@ export function App(){
 
    <section className="grid workbench">
     <div className="panel">
-     <div className="panel-title"><h2>GitHub correlation</h2><span>Encrypted credential</span></div>
-     <form className="stack" onSubmit={connectGitHub}><input value={github.owner} onChange={e=>setGitHub({...github,owner:e.target.value})} placeholder="GitHub owner"/><input value={github.repo} onChange={e=>setGitHub({...github,repo:e.target.value})} placeholder="Repository"/><input type="password" value={github.accessToken} onChange={e=>setGitHub({...github,accessToken:e.target.value})} placeholder="Access / installation token"/><button className="primary" disabled={!selected||loading}>Connect repository</button></form>
+     <div className="panel-title"><h2>GitHub correlation</h2><span>{isOwner?'Encrypted credential':'Owner permission required'}</span></div>
+     {isOwner&&<form className="stack" onSubmit={connectGitHub}><input value={github.owner} onChange={e=>setGitHub({...github,owner:e.target.value})} placeholder="GitHub owner"/><input value={github.repo} onChange={e=>setGitHub({...github,repo:e.target.value})} placeholder="Repository"/><input type="password" value={github.accessToken} onChange={e=>setGitHub({...github,accessToken:e.target.value})} placeholder="Access / installation token"/><button className="primary" disabled={!selected||loading}>Connect repository</button></form>}
      {latestIncident&&<><h3>{latestIncident.rootCause}</h3><p>{latestIncident.status} · {latestIncident.confidence} confidence</p><details><summary>Timeline ({latestIncident.timeline.length})</summary>{latestIncident.timeline.map((event,i)=><p key={i}><b>{event.kind}</b> {event.summary}</p>)}</details></>}
     </div>
 
     <div className="panel">
-     <div className="panel-title"><h2>Approved remediation</h2><span>Human gate required</span></div>
-     <form className="stack" onSubmit={proposeAction}>
+     <div className="panel-title"><h2>Approved remediation</h2><span>{isOwner?'Human gate required':'Owner permission required'}</span></div>
+     {isOwner&&<form className="stack" onSubmit={proposeAction}>
       <select value={remediation.action} onChange={e=>setRemediation({...remediation,action:e.target.value})}><option value="docker.restart">Restart Docker container</option><option value="system.service_restart">Restart system service</option></select>
       <input value={remediation.target} onChange={e=>setRemediation({...remediation,target:e.target.value})} placeholder="Target container / service"/>
       <input value={remediation.reason} onChange={e=>setRemediation({...remediation,reason:e.target.value})} placeholder="Reason"/>
       <button className="primary" disabled={!selected||loading}>Propose action</button>
-     </form>
-     {action&&<div className="finding"><p><b>{action.action}</b> → {action.target}</p><p>Status: {action.status}</p>{action.status==='pending_approval'&&<><input value={remediation.approvedBy} onChange={e=>setRemediation({...remediation,approvedBy:e.target.value})} placeholder="Approver name"/><button className="primary" disabled={!remediation.approvedBy||loading} onClick={()=>void approveAction()}>Approve & run</button></>}{action.verification?.summary&&<p>Verification: {action.verification.summary}</p>}</div>}
+     </form>}
+     {isOwner&&action&&<div className="finding"><p><b>{action.action}</b> → {action.target}</p><p>Status: {action.status}</p>{action.status==='pending_approval'&&<button className="primary" disabled={loading} onClick={()=>void approveAction()}>Approve as {principal.email}</button>}{action.verification?.summary&&<p>Verification: {action.verification.summary}</p>}</div>}
     </div>
    </section>
 
+   {isOwner&&<section className="panel">
+    <div className="panel-title"><h2>Team access</h2><span>Create member account</span></div>
+    <form className="stack" onSubmit={createMember}><input type="email" value={memberForm.email} onChange={e=>setMemberForm({...memberForm,email:e.target.value})} placeholder="Member email"/><input type="password" value={memberForm.password} onChange={e=>setMemberForm({...memberForm,password:e.target.value})} placeholder="Temporary password (10+ characters)"/><button className="primary" disabled={loading}>Add member</button></form>
+   </section>}
+
    <section className="panel">
-    <div className="panel-title"><h2>Audit trail</h2><span>Last {Math.min(audit.length,8)} events</span></div>
+    <div className="panel-title"><h2>Audit trail</h2><span>Organization scoped</span></div>
     {audit.slice(0,8).map(item=><p key={item.id}><b>{item.eventType}</b> · {item.actor} · {item.success?'success':'failed'} — {item.detail}</p>)}
    </section>
   </main>
