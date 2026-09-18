@@ -12,11 +12,11 @@ import (
 )
 
 type Investigator interface {
-	Investigate(context.Context, string, string, string) (domain.InvestigationResult, error)
+	InvestigateWithEvidence(context.Context, string, string, string, []domain.Evidence) (domain.InvestigationResult, error)
 }
 
-type TimelineClient interface {
-	FetchTimeline(context.Context, domain.RepositoryIntegration) ([]domain.TimelineEvent, error)
+type RepositoryContextClient interface {
+	FetchContext(context.Context, domain.RepositoryIntegration) (domain.RepositoryContext, error)
 }
 
 type IncidentRepository interface {
@@ -29,28 +29,43 @@ type IncidentService struct {
 	repo         IncidentRepository
 	integrations RepositoryIntegrationRepository
 	investigator Investigator
-	timeline     TimelineClient
+	repositoryContext RepositoryContextClient
 }
 
-func NewIncidentService(repo IncidentRepository, integrations RepositoryIntegrationRepository, investigator Investigator, timeline TimelineClient) *IncidentService {
-	return &IncidentService{repo: repo, integrations: integrations, investigator: investigator, timeline: timeline}
+func NewIncidentService(repo IncidentRepository, integrations RepositoryIntegrationRepository, investigator Investigator, repositoryContext RepositoryContextClient) *IncidentService {
+	return &IncidentService{repo: repo, integrations: integrations, investigator: investigator, repositoryContext: repositoryContext}
 }
 
 func (s *IncidentService) Create(ctx context.Context, organizationID, environmentID, question string) (domain.Incident, error) {
 	if organizationID == "" || environmentID == "" || question == "" {
 		return domain.Incident{}, errors.New("organization, environmentId and question are required")
 	}
-	result, err := s.investigator.Investigate(ctx, organizationID, environmentID, question)
+	var repositoryEvidence []domain.Evidence
+	var repositoryTimeline []domain.TimelineEvent
+	var repositoryError error
+	if s.integrations != nil && s.repositoryContext != nil {
+		if integration, findErr := s.integrations.FindByEnvironment(ctx, organizationID, environmentID); findErr == nil {
+			repositoryContext, contextErr := s.repositoryContext.FetchContext(ctx, integration)
+			if contextErr != nil {
+				repositoryError = contextErr
+			} else {
+				repositoryEvidence = repositoryContext.Evidence
+				repositoryTimeline = repositoryContext.Timeline
+			}
+		}
+	}
+
+	result, err := s.investigator.InvestigateWithEvidence(ctx, organizationID, environmentID, question, repositoryEvidence)
 	if err != nil {
 		return domain.Incident{}, err
 	}
 	events := evidenceTimelineEvents(result.Evidence)
-	if integration, findErr := s.integrations.FindByEnvironment(ctx, organizationID, environmentID); findErr == nil {
-		if fetched, timelineErr := s.timeline.FetchTimeline(ctx, integration); timelineErr == nil {
-			events = append(events, fetched...)
-		} else {
-			events = append(events, domain.TimelineEvent{Source: "github", Kind: "integration_error", Summary: timelineErr.Error(), OccurredAt: time.Now().UTC()})
-		}
+	events = append(events, repositoryTimeline...)
+	if repositoryError != nil {
+		events = append(events, domain.TimelineEvent{
+			Source: "github", Kind: "integration_error",
+			Summary: repositoryError.Error(), OccurredAt: time.Now().UTC(),
+		})
 	}
 	sort.SliceStable(events, func(i, j int) bool { return events[i].OccurredAt.Before(events[j].OccurredAt) })
 	status := "investigating"

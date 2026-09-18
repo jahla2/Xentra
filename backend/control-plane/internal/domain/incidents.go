@@ -11,6 +11,13 @@ type RepositoryIntegration struct {
 	Repo                      string `json:"repo"`
 	CredentialID              string `json:"-"`
 	WebhookSecretCredentialID string `json:"-"`
+	AuthMode                  string `json:"authMode"`
+	InstallationID            int64  `json:"installationId,omitempty"`
+}
+
+type RepositoryContext struct {
+	Timeline []TimelineEvent `json:"timeline"`
+	Evidence []Evidence      `json:"evidence"`
 }
 
 type GitHubIntegrationSetup struct {
