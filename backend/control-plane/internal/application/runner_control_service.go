@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jahla2/Xentra/backend/control-plane/internal/domain"
+	"github.com/jahla2/Xentra/backend/control-plane/internal/observability"
 )
 
 type RunnerTokenStore interface {
@@ -149,9 +150,12 @@ func (s *RunnerControlService) Dispatch(
 	if err != nil {
 		return domain.RunnerTaskResult{}, err
 	}
+	traceParent, traceState := observability.InjectContext(ctx)
 	task := domain.RunnerTask{
 		ID: taskID, RunnerID: registration.ID, Tool: request.Tool,
-		Arguments: request.Arguments, Status: "queued", CreatedAt: time.Now().UTC(),
+		Arguments: request.Arguments, Status: "queued",
+		TraceParent: traceParent, TraceState: traceState,
+		CreatedAt: time.Now().UTC(),
 	}
 	if err := s.repo.EnqueueTask(ctx, task); err != nil {
 		return domain.RunnerTaskResult{}, err
