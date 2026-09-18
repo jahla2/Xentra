@@ -5,9 +5,11 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 TMP=$(mktemp -d)
 AI_LOG=/tmp/xentra-ai.log
 RUNNER_LOG=/tmp/xentra-runner.log
+OUTBOUND_RUNNER_LOG=/tmp/xentra-outbound-runner.log
 CONTROL_LOG=/tmp/xentra-control.log
 AI_PID=""
 RUNNER_PID=""
+OUTBOUND_RUNNER_PID=""
 CONTROL_PID=""
 
 cleanup() {
@@ -15,11 +17,13 @@ cleanup() {
   set +e
   if [ -n "$CONTROL_PID" ]; then kill "$CONTROL_PID" 2>/dev/null; wait "$CONTROL_PID" 2>/dev/null; fi
   if [ -n "$RUNNER_PID" ]; then kill "$RUNNER_PID" 2>/dev/null; wait "$RUNNER_PID" 2>/dev/null; fi
+  if [ -n "$OUTBOUND_RUNNER_PID" ]; then kill "$OUTBOUND_RUNNER_PID" 2>/dev/null; wait "$OUTBOUND_RUNNER_PID" 2>/dev/null; fi
   if [ -n "$AI_PID" ]; then kill "$AI_PID" 2>/dev/null; wait "$AI_PID" 2>/dev/null; fi
   docker rm -f xentra-ssh-fixture >/dev/null 2>&1 || true
   if [ "$status" -ne 0 ]; then
     echo "---- AI log ----"; cat "$AI_LOG" 2>/dev/null || true
-    echo "---- Runner log ----"; cat "$RUNNER_LOG" 2>/dev/null || true
+    echo "---- Legacy Runner log ----"; cat "$RUNNER_LOG" 2>/dev/null || true
+    echo "---- Outbound Runner log ----"; cat "$OUTBOUND_RUNNER_LOG" 2>/dev/null || true
     echo "---- Control-plane log ----"; cat "$CONTROL_LOG" 2>/dev/null || true
   fi
   rm -rf "$TMP"
@@ -73,10 +77,11 @@ status_request() {
 start_control() {
   (
     cd "$ROOT/backend/control-plane"
-    exec env       XENTRA_CONTROL_ADDR=127.0.0.1:8080       XENTRA_AI_URL=http://127.0.0.1:8000       XENTRA_DATABASE_URL="$XENTRA_DATABASE_URL"       XENTRA_MASTER_KEY="$XENTRA_MASTER_KEY"       XENTRA_RUNNER_INSECURE_DEV=true       go run ./cmd/api
+    exec env       XENTRA_CONTROL_ADDR=127.0.0.1:8080       XENTRA_RUNNER_CONTROL_ADDR=127.0.0.1:8081       XENTRA_RUNNER_CONTROL_INSECURE_DEV=true       XENTRA_AI_URL=http://127.0.0.1:8000       XENTRA_DATABASE_URL="$XENTRA_DATABASE_URL"       XENTRA_MASTER_KEY="$XENTRA_MASTER_KEY"       XENTRA_RUNNER_INSECURE_DEV=true       go run ./cmd/api
   ) >"$CONTROL_LOG" 2>&1 &
   CONTROL_PID=$!
   wait_http http://127.0.0.1:8080/health
+  wait_http http://127.0.0.1:8081/health
 }
 
 echo "Starting AI service"
@@ -125,7 +130,42 @@ test -n "$PROJECT_ID"
 PROJECTS=$(request GET /api/projects "$OWNER_TOKEN" "")
 test "$(printf '%s' "$PROJECTS" | jq 'length')" -eq 1
 
-echo "Connecting runner environment"
+echo "Creating outbound Runner enrollment"
+OUTBOUND_ENROLLMENT=$(request POST /api/runner-enrollments "$OWNER_TOKEN" "$(jq -n --arg project "$PROJECT_ID" '{projectId:$project,name:"CI Outbound Runner",type:"production"}')")
+OUTBOUND_ENV_ID=$(printf '%s' "$OUTBOUND_ENROLLMENT" | jq -r '.environment.id')
+OUTBOUND_RUNNER_ID=$(printf '%s' "$OUTBOUND_ENROLLMENT" | jq -r '.runnerId')
+OUTBOUND_RUNNER_TOKEN=$(printf '%s' "$OUTBOUND_ENROLLMENT" | jq -r '.runnerToken')
+test -n "$OUTBOUND_ENV_ID"
+test -n "$OUTBOUND_RUNNER_ID"
+test -n "$OUTBOUND_RUNNER_TOKEN"
+test "$(printf '%s' "$OUTBOUND_ENROLLMENT" | jq -r '.environment.connectionType')" = "runner_outbound"
+
+echo "Starting outbound Runner agent"
+(
+  cd "$ROOT/backend/runner"
+  exec env \
+    XENTRA_CONTROL_URL=http://127.0.0.1:8081 \
+    XENTRA_CONTROL_INSECURE_DEV=true \
+    XENTRA_RUNNER_ID="$OUTBOUND_RUNNER_ID" \
+    XENTRA_RUNNER_TOKEN="$OUTBOUND_RUNNER_TOKEN" \
+    XENTRA_CONTROL_POLL_SECONDS=1 \
+    go run ./cmd/runner
+) >"$OUTBOUND_RUNNER_LOG" 2>&1 &
+OUTBOUND_RUNNER_PID=$!
+
+echo "Waiting for outbound Runner check-in"
+OUTBOUND_HOST=""
+for _ in $(seq 1 90); do
+  ENVIRONMENTS=$(request GET /api/environments "$OWNER_TOKEN" "")
+  OUTBOUND_HOST=$(printf '%s' "$ENVIRONMENTS" | jq -r --arg id "$OUTBOUND_ENV_ID" '.[] | select(.id==$id) | .hostname')
+  if [ -n "$OUTBOUND_HOST" ] && [ "$OUTBOUND_HOST" != "null" ]; then
+    break
+  fi
+  sleep 1
+done
+test -n "$OUTBOUND_HOST"
+
+echo "Connecting legacy runner environment"
 RUNNER_PAYLOAD=$(jq -n --arg project "$PROJECT_ID" --arg url "http://127.0.0.1:8090" '{projectId:$project,name:"CI Runner",type:"production",connectionType:"runner",runnerUrl:$url}')
 RUNNER_ENV=$(request POST /api/environments "$OWNER_TOKEN" "$RUNNER_PAYLOAD")
 RUNNER_ENV_ID=$(printf '%s' "$RUNNER_ENV" | jq -r '.id')
@@ -138,7 +178,7 @@ SSH_ENV_ID=$(printf '%s' "$SSH_ENV" | jq -r '.id')
 test -n "$SSH_ENV_ID"
 
 ENVIRONMENTS=$(request GET /api/environments "$OWNER_TOKEN" "")
-test "$(printf '%s' "$ENVIRONMENTS" | jq 'length')" -eq 2
+test "$(printf '%s' "$ENVIRONMENTS" | jq 'length')" -eq 3
 
 echo "Verifying bad SSH fingerprint is rejected"
 BAD_SSH_PAYLOAD=$(jq -n --arg project "$PROJECT_ID" --rawfile key "$TMP/id_ed25519" '{projectId:$project,name:"Bad SSH",type:"staging",connectionType:"ssh",sshHost:"127.0.0.1",sshPort:2222,sshUser:"xentra",sshHostKeyFingerprint:"SHA256:not-the-host",sshPrivateKey:$key}')
@@ -146,7 +186,7 @@ BAD_STATUS=$(status_request POST /api/environments "$OWNER_TOKEN" "$BAD_SSH_PAYL
 test "$BAD_STATUS" -ne 201
 
 echo "Running evidence-backed investigation"
-INVESTIGATION_PAYLOAD=$(jq -n --arg id "$RUNNER_ENV_ID" '{environmentId:$id,question:"What is running and is the environment healthy?"}')
+INVESTIGATION_PAYLOAD=$(jq -n --arg id "$OUTBOUND_ENV_ID" '{environmentId:$id,question:"What is running and is the environment healthy?"}')
 INVESTIGATION=$(request POST /api/investigations "$OWNER_TOKEN" "$INVESTIGATION_PAYLOAD")
 test -n "$(printf '%s' "$INVESTIGATION" | jq -r '.summary')"
 test "$(printf '%s' "$INVESTIGATION" | jq '.evidence | length')" -ge 1
@@ -157,7 +197,7 @@ INCIDENT_ID=$(printf '%s' "$INCIDENT" | jq -r '.id')
 test -n "$INCIDENT_ID"
 
 echo "Proposing and approving typed Docker restart"
-ACTION_PAYLOAD=$(jq -n --arg inc "$INCIDENT_ID" --arg env "$RUNNER_ENV_ID" '{incidentId:$inc,environmentId:$env,action:"docker.restart",target:"xentra-ssh-fixture",reason:"integration verification"}')
+ACTION_PAYLOAD=$(jq -n --arg inc "$INCIDENT_ID" --arg env "$OUTBOUND_ENV_ID" '{incidentId:$inc,environmentId:$env,action:"docker.restart",target:"xentra-ssh-fixture",reason:"integration verification"}')
 ACTION=$(request POST /api/actions "$OWNER_TOKEN" "$ACTION_PAYLOAD")
 ACTION_ID=$(printf '%s' "$ACTION" | jq -r '.id')
 test "$(printf '%s' "$ACTION" | jq -r '.status')" = "pending_approval"
@@ -179,7 +219,7 @@ MEMBER_TOKEN=$(printf '%s' "$MEMBER_SESSION" | jq -r '.token')
 MEMBER_PROJECTS=$(request GET /api/projects "$MEMBER_TOKEN" "")
 test "$(printf '%s' "$MEMBER_PROJECTS" | jq 'length')" -eq 1
 MEMBER_ENVS=$(request GET /api/environments "$MEMBER_TOKEN" "")
-test "$(printf '%s' "$MEMBER_ENVS" | jq 'length')" -eq 2
+test "$(printf '%s' "$MEMBER_ENVS" | jq 'length')" -eq 3
 
 MEMBER_CREATE_STATUS=$(status_request POST /api/environments "$MEMBER_TOKEN" "$RUNNER_PAYLOAD")
 test "$MEMBER_CREATE_STATUS" -eq 403
@@ -203,7 +243,12 @@ start_control
 PERSISTED_PROJECTS=$(request GET /api/projects "$OWNER_TOKEN" "")
 test "$(printf '%s' "$PERSISTED_PROJECTS" | jq 'length')" -eq 1
 PERSISTED=$(request GET /api/environments "$OWNER_TOKEN" "")
-test "$(printf '%s' "$PERSISTED" | jq 'length')" -eq 2
+test "$(printf '%s' "$PERSISTED" | jq 'length')" -eq 3
+
+echo "Verifying outbound Runner reconnects after control-plane restart"
+POST_RESTART_INVESTIGATION=$(request POST /api/investigations "$OWNER_TOKEN" "$INVESTIGATION_PAYLOAD")
+test -n "$(printf '%s' "$POST_RESTART_INVESTIGATION" | jq -r '.summary')"
+test "$(printf '%s' "$POST_RESTART_INVESTIGATION" | jq '.evidence | length')" -ge 1
 
 echo "Revoking owner session"
 request POST /api/auth/logout "$OWNER_TOKEN" "" >/dev/null
