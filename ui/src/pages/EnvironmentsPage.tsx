@@ -20,7 +20,7 @@ export function EnvironmentsPage(){
  },[projects,form.projectId]);
 
  const controlBase=useMemo(()=>{
-  const configured=api.baseUrl();
+  const configured=api.runnerControlUrl();
   if(configured)return configured.replace(/\/$/,'');
   return typeof window!=='undefined'?window.location.origin:'https://xentra.example.com';
  },[]);
