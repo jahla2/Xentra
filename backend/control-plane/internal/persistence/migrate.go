@@ -30,8 +30,11 @@ var githubAppMigration string
 //go:embed migrations/008_incident_memory.sql
 var incidentMemoryMigration string
 
+//go:embed migrations/009_outbound_runner.sql
+var outboundRunnerMigration string
+
 func Migrate(ctx context.Context, db *sql.DB) error {
-	for _, migration := range []string{coreMigration, incidentMigration, actionsAuditMigration, authOrgMigration, projectsMigration, githubWebhooksMigration, githubAppMigration, incidentMemoryMigration} {
+	for _, migration := range []string{coreMigration, incidentMigration, actionsAuditMigration, authOrgMigration, projectsMigration, githubWebhooksMigration, githubAppMigration, incidentMemoryMigration, outboundRunnerMigration} {
 		if _, err := db.ExecContext(ctx, migration); err != nil {
 			return err
 		}
