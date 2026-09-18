@@ -13,7 +13,7 @@ export function EnvironmentsPage(){
  const[connectionChoice,setConnectionChoice]=useState<ConnectionChoice>('runner_outbound');
  const[form,setForm]=useState<CreateEnvironmentInput>({
   projectId:'',name:'Production Ubuntu',type:'production',connectionType:'runner',
-  runnerUrl:'https://runner.example.com:8090',sshPort:22,
+  runnerUrl:'https://runner.example.com:8090',sshPort:22,healthUrl:'',
  });
 
  useEffect(()=>{
@@ -29,7 +29,7 @@ export function EnvironmentsPage(){
  async function submit(event:FormEvent){
   event.preventDefault();
   if(connectionChoice==='runner_outbound'){
-   await createRunnerEnrollment(form.projectId,form.name,form.type);
+   await createRunnerEnrollment(form.projectId,form.name,form.type,form.healthUrl??'');
    return;
   }
   await createEnvironment({...form,connectionType:connectionChoice});
@@ -62,6 +62,7 @@ export function EnvironmentsPage(){
      <option value="staging">Staging</option>
      <option value="production">Production</option>
     </select>
+    <input value={form.healthUrl??''} onChange={e=>update({healthUrl:e.target.value})} placeholder="Health URL (optional), e.g. https://api.example.com/health"/>
     <select value={connectionChoice} onChange={e=>setConnectionChoice(e.target.value as ConnectionChoice)}>
      <option value="runner_outbound">Outbound Xentra Runner (recommended)</option>
      <option value="runner">Legacy inbound Runner</option>

@@ -17,13 +17,14 @@ func (h *Handler) createRunnerEnrollment(w http.ResponseWriter, r *http.Request)
 		ProjectID string `json:"projectId"`
 		Name      string `json:"name"`
 		Type      string `json:"type"`
+		HealthURL string `json:"healthUrl"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
 		return
 	}
-	enrollment, err := h.runners.CreateEnrollment(
-		r.Context(), principal.OrganizationID, input.ProjectID, input.Name, input.Type,
+	enrollment, err := h.runners.CreateEnrollmentWithHealthURL(
+		r.Context(), principal.OrganizationID, input.ProjectID, input.Name, input.Type, input.HealthURL,
 	)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})

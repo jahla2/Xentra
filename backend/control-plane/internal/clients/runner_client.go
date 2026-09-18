@@ -160,10 +160,21 @@ func (c *RunnerClient) VerifyAction(ctx context.Context, env domain.Environment,
 		return domain.VerificationResult{}, err
 	}
 	output := strings.TrimSpace(strings.ToLower(result.Output))
-	healthy := result.Success && (output == "true" || output == "active" || output == "running")
+	statusHealthy := result.Success && (output == "true" || output == "active" || output == "running")
+	evidence := []domain.Evidence{{Source: tool, Output: result.Output, Success: result.Success, OccurredAt: time.Now().UTC()}}
+	healthy := statusHealthy
+	if env.HealthURL != "" {
+		healthResult, healthErr := c.executeTool(ctx, env, "http.health_check", map[string]string{"url": env.HealthURL})
+		if healthErr != nil {
+			return domain.VerificationResult{}, healthErr
+		}
+		healthOK := httpHealthHealthy(healthResult.Output, healthResult.Success)
+		evidence = append(evidence, domain.Evidence{Source: "http.health_check:" + env.HealthURL, Output: healthResult.Output, Success: healthResult.Success, OccurredAt: time.Now().UTC()})
+		healthy = statusHealthy && healthOK
+	}
 	return domain.VerificationResult{
-		Healthy: healthy, Summary: verificationSummary(healthy, target),
-		Evidence: []domain.Evidence{{Source: tool, Output: result.Output, Success: result.Success}},
+		Healthy: healthy, Summary: verificationSummaryForEnvironment(healthy, target, env.HealthURL),
+		Evidence: evidence,
 	}, nil
 }
 
@@ -251,10 +262,25 @@ func actionArguments(action, target string) (map[string]string, error) {
 }
 
 func verificationSummary(healthy bool, target string) string {
+	return verificationSummaryForEnvironment(healthy, target, "")
+}
+
+func verificationSummaryForEnvironment(healthy bool, target, healthURL string) string {
+	if healthy && healthURL != "" {
+		return target + " is running and " + healthURL + " passed its health check"
+	}
 	if healthy {
 		return target + " is healthy after remediation"
 	}
+	if healthURL != "" {
+		return target + " or its configured health endpoint did not pass post-action verification"
+	}
 	return target + " did not pass post-action verification"
+}
+
+func httpHealthHealthy(output string, success bool) bool {
+	code := strings.TrimSpace(output)
+	return success && len(code) == 3 && (code[0] == '2' || code[0] == '3')
 }
 
 func envFlag(name string) bool {

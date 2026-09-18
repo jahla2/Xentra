@@ -24,17 +24,17 @@ func (r *PostgresEnvironmentRepository) Save(ctx context.Context, env domain.Env
 	if err != nil {
 		return err
 	}
-	query := "INSERT INTO environments(id,organization_id,project_id,name,environment_type,connection_type,runner_url,ssh_host,ssh_port,ssh_user,ssh_host_key_fingerprint,credential_id,os,hostname,cpu,memory,disk,containers,capabilities) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) ON CONFLICT(id) DO UPDATE SET organization_id=EXCLUDED.organization_id,project_id=EXCLUDED.project_id,name=EXCLUDED.name,environment_type=EXCLUDED.environment_type,connection_type=EXCLUDED.connection_type,runner_url=EXCLUDED.runner_url,ssh_host=EXCLUDED.ssh_host,ssh_port=EXCLUDED.ssh_port,ssh_user=EXCLUDED.ssh_user,ssh_host_key_fingerprint=EXCLUDED.ssh_host_key_fingerprint,credential_id=EXCLUDED.credential_id,os=EXCLUDED.os,hostname=EXCLUDED.hostname,cpu=EXCLUDED.cpu,memory=EXCLUDED.memory,disk=EXCLUDED.disk,containers=EXCLUDED.containers,capabilities=EXCLUDED.capabilities"
+	query := "INSERT INTO environments(id,organization_id,project_id,name,environment_type,connection_type,runner_url,ssh_host,ssh_port,ssh_user,ssh_host_key_fingerprint,credential_id,health_url,os,hostname,cpu,memory,disk,containers,capabilities) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) ON CONFLICT(id) DO UPDATE SET organization_id=EXCLUDED.organization_id,project_id=EXCLUDED.project_id,name=EXCLUDED.name,environment_type=EXCLUDED.environment_type,connection_type=EXCLUDED.connection_type,runner_url=EXCLUDED.runner_url,ssh_host=EXCLUDED.ssh_host,ssh_port=EXCLUDED.ssh_port,ssh_user=EXCLUDED.ssh_user,ssh_host_key_fingerprint=EXCLUDED.ssh_host_key_fingerprint,credential_id=EXCLUDED.credential_id,health_url=EXCLUDED.health_url,os=EXCLUDED.os,hostname=EXCLUDED.hostname,cpu=EXCLUDED.cpu,memory=EXCLUDED.memory,disk=EXCLUDED.disk,containers=EXCLUDED.containers,capabilities=EXCLUDED.capabilities"
 	_, err = r.db.ExecContext(ctx, query,
 		env.ID, env.OrganizationID, env.ProjectID, env.Name, env.Type, env.ConnectionType, nullable(env.RunnerURL),
 		nullable(env.SSHHost), env.SSHPort, nullable(env.SSHUser), nullable(env.SSHHostKeyFingerprint),
-		nullable(env.CredentialID), env.OS, env.Hostname, env.CPU, env.Memory, env.Disk, containers, capabilities,
+		nullable(env.CredentialID), env.HealthURL, env.OS, env.Hostname, env.CPU, env.Memory, env.Disk, containers, capabilities,
 	)
 	return err
 }
 
 func (r *PostgresEnvironmentRepository) Get(ctx context.Context, organizationID, id string) (domain.Environment, error) {
-	query := "SELECT id,organization_id,COALESCE(project_id,''),name,environment_type,connection_type,COALESCE(runner_url,''),COALESCE(ssh_host,''),ssh_port,COALESCE(ssh_user,''),COALESCE(ssh_host_key_fingerprint,''),COALESCE(credential_id,''),os,hostname,cpu,memory,disk,containers,capabilities FROM environments WHERE organization_id=$1 AND id=$2"
+	query := "SELECT id,organization_id,COALESCE(project_id,''),name,environment_type,connection_type,COALESCE(runner_url,''),COALESCE(ssh_host,''),ssh_port,COALESCE(ssh_user,''),COALESCE(ssh_host_key_fingerprint,''),COALESCE(credential_id,''),COALESCE(health_url,''),os,hostname,cpu,memory,disk,containers,capabilities FROM environments WHERE organization_id=$1 AND id=$2"
 	env, err := scanEnvironment(r.db.QueryRowContext(ctx, query, organizationID, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.Environment{}, errors.New("environment not found")
@@ -43,7 +43,7 @@ func (r *PostgresEnvironmentRepository) Get(ctx context.Context, organizationID,
 }
 
 func (r *PostgresEnvironmentRepository) List(ctx context.Context, organizationID string) ([]domain.Environment, error) {
-	query := "SELECT id,organization_id,COALESCE(project_id,''),name,environment_type,connection_type,COALESCE(runner_url,''),COALESCE(ssh_host,''),ssh_port,COALESCE(ssh_user,''),COALESCE(ssh_host_key_fingerprint,''),COALESCE(credential_id,''),os,hostname,cpu,memory,disk,containers,capabilities FROM environments WHERE organization_id=$1 ORDER BY name"
+	query := "SELECT id,organization_id,COALESCE(project_id,''),name,environment_type,connection_type,COALESCE(runner_url,''),COALESCE(ssh_host,''),ssh_port,COALESCE(ssh_user,''),COALESCE(ssh_host_key_fingerprint,''),COALESCE(credential_id,''),COALESCE(health_url,''),os,hostname,cpu,memory,disk,containers,capabilities FROM environments WHERE organization_id=$1 ORDER BY name"
 	rows, err := r.db.QueryContext(ctx, query, organizationID)
 	if err != nil {
 		return nil, err
@@ -68,7 +68,7 @@ func scanEnvironment(row rowScanner) (domain.Environment, error) {
 	var containers, capabilities []byte
 	err := row.Scan(
 		&env.ID, &env.OrganizationID, &env.ProjectID, &env.Name, &env.Type, &env.ConnectionType, &env.RunnerURL,
-		&env.SSHHost, &env.SSHPort, &env.SSHUser, &env.SSHHostKeyFingerprint, &env.CredentialID,
+		&env.SSHHost, &env.SSHPort, &env.SSHUser, &env.SSHHostKeyFingerprint, &env.CredentialID, &env.HealthURL,
 		&env.OS, &env.Hostname, &env.CPU, &env.Memory, &env.Disk, &containers, &capabilities,
 	)
 	if err != nil {

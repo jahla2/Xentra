@@ -86,9 +86,19 @@ func (c *OutboundRunnerClient) VerifyAction(ctx context.Context, env domain.Envi
 		return domain.VerificationResult{}, err
 	}
 	normalized := strings.TrimSpace(strings.ToLower(item.Output))
-	healthy := item.Success && (normalized == "true" || normalized == "active" || normalized == "running")
+	statusHealthy := item.Success && (normalized == "true" || normalized == "active" || normalized == "running")
+	evidence := []domain.Evidence{item}
+	healthy := statusHealthy
+	if env.HealthURL != "" {
+		healthItem, healthErr := c.ExecuteReadTool(ctx, env, domain.ToolRequest{Tool: "http.health_check", Arguments: map[string]string{"url": env.HealthURL}})
+		if healthErr != nil {
+			return domain.VerificationResult{}, healthErr
+		}
+		healthy = statusHealthy && httpHealthHealthy(healthItem.Output, healthItem.Success)
+		evidence = append(evidence, healthItem)
+	}
 	return domain.VerificationResult{
-		Healthy: healthy, Summary: verificationSummary(healthy, target),
-		Evidence: []domain.Evidence{item},
+		Healthy: healthy, Summary: verificationSummaryForEnvironment(healthy, target, env.HealthURL),
+		Evidence: evidence,
 	}, nil
 }

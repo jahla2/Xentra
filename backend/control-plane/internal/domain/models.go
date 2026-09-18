@@ -15,6 +15,7 @@ type Environment struct {
 	SSHUser               string   `json:"sshUser,omitempty"`
 	SSHHostKeyFingerprint string   `json:"sshHostKeyFingerprint,omitempty"`
 	CredentialID          string   `json:"credentialId,omitempty"`
+	HealthURL             string   `json:"healthUrl,omitempty"`
 	OS                    string   `json:"os"`
 	Hostname              string   `json:"hostname"`
 	CPU                   string   `json:"cpu"`

@@ -82,3 +82,34 @@ func TestEnvironmentRepositoryIsolatesOrganizations(t *testing.T) {
 		t.Fatal("expected cross-organization lookup to fail")
 	}
 }
+
+
+func TestCreateEnvironmentPersistsValidHealthURL(t *testing.T) {
+	repo := NewMemoryEnvironmentRepository()
+	discovery := fakeDiscoveryClient{domain.Discovery{OS: "linux", Hostname: "prod-01"}}
+	service := NewEnvironmentService(repo, projectRepoForTest(), discovery, nil)
+
+	env, err := service.Create(context.Background(), "org-a", CreateEnvironmentInput{
+		ProjectID: "prj-1", Name: "Production", ConnectionType: "runner",
+		RunnerURL: "http://runner:8090", HealthURL: "https://api.example.com/health",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env.HealthURL != "https://api.example.com/health" {
+		t.Fatalf("unexpected health URL %q", env.HealthURL)
+	}
+}
+
+func TestCreateEnvironmentRejectsUnsafeHealthURL(t *testing.T) {
+	service := NewEnvironmentService(NewMemoryEnvironmentRepository(), projectRepoForTest(), fakeDiscoveryClient{}, nil)
+	for _, healthURL := range []string{"file:///etc/passwd", "https://user:secret@example.com/health", "not-a-url"} {
+		_, err := service.Create(context.Background(), "org-a", CreateEnvironmentInput{
+			ProjectID: "prj-1", Name: "Production", ConnectionType: "runner",
+			RunnerURL: "http://runner:8090", HealthURL: healthURL,
+		})
+		if err == nil {
+			t.Fatalf("expected health URL %q to be rejected", healthURL)
+		}
+	}
+}

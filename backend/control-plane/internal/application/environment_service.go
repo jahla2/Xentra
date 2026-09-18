@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
+	"strings"
 	"sync"
 
 	"github.com/jahla2/Xentra/backend/control-plane/internal/domain"
@@ -35,6 +37,7 @@ type CreateEnvironmentInput struct {
 	SSHHostKeyFingerprint string `json:"sshHostKeyFingerprint"`
 	SSHPrivateKey         string `json:"sshPrivateKey"`
 	SSHPassphrase         string `json:"sshPassphrase"`
+	HealthURL             string `json:"healthUrl"`
 }
 
 type EnvironmentService struct {
@@ -77,9 +80,13 @@ func (s *EnvironmentService) Create(ctx context.Context, organizationID string, 
 		ID: id, OrganizationID: organizationID, ProjectID: input.ProjectID, Name: input.Name, Type: input.Type,
 		ConnectionType: connectionType, RunnerURL: input.RunnerURL, SSHHost: input.SSHHost,
 		SSHPort: input.SSHPort, SSHUser: input.SSHUser, SSHHostKeyFingerprint: input.SSHHostKeyFingerprint,
+		HealthURL: strings.TrimSpace(input.HealthURL),
 	}
 	if env.Type == "" {
 		env.Type = "development"
+	}
+	if env.HealthURL != "" && !validHealthURL(env.HealthURL) {
+		return domain.Environment{}, errors.New("healthUrl must be a valid http/https URL without embedded credentials")
 	}
 
 	switch connectionType {
@@ -169,4 +176,12 @@ func (r *MemoryEnvironmentRepository) List(_ context.Context, organizationID str
 		}
 	}
 	return result, nil
+}
+
+func validHealthURL(value string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || parsed.Host == "" || parsed.User != nil {
+		return false
+	}
+	return parsed.Scheme == "http" || parsed.Scheme == "https"
 }
