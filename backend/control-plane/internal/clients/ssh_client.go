@@ -37,6 +37,9 @@ func (c *SSHClient) Discover(ctx context.Context, env domain.Environment) (domai
 	if err != nil { return domain.Discovery{}, err }
 	hostname, err := runSSH(client, "hostname")
 	if err != nil { return domain.Discovery{}, err }
+	cpu, _ := runSSH(client, "nproc")
+	memory, _ := runSSH(client, "free -m")
+	disk, _ := runSSH(client, "df -h /")
 
 	caps := []string{}
 	for name, command := range map[string]string{
@@ -49,7 +52,60 @@ func (c *SSHClient) Discover(ctx context.Context, env domain.Environment) (domai
 	} {
 		if _, err := runSSH(client, command); err == nil { caps = append(caps, name) }
 	}
-	return domain.Discovery{OS: strings.TrimSpace(strings.ToLower(osName)), Hostname: strings.TrimSpace(hostname), Capabilities: caps}, nil
+
+	containers := []string{}
+	if containsCapability(caps, "docker") {
+		if output, listErr := runSSH(client, "docker ps --format '{{.Names}}\\t{{.Status}}'"); listErr == nil {
+			containers = remoteDiscoveryLines(output, 100)
+		}
+	}
+	cpuSummary := strings.TrimSpace(cpu)
+	if cpuSummary != "" {
+		cpuSummary += " cores"
+	}
+	return domain.Discovery{
+		OS: strings.TrimSpace(strings.ToLower(osName)),
+		Hostname: strings.TrimSpace(hostname),
+		CPU: cpuSummary,
+		Memory: boundedRemoteDiscoveryOutput(memory),
+		Disk: boundedRemoteDiscoveryOutput(disk),
+		Containers: containers,
+		Capabilities: caps,
+	}, nil
+}
+
+func boundedRemoteDiscoveryOutput(value string) string {
+	value = strings.TrimSpace(value)
+	const limit = 2048
+	if len(value) > limit {
+		return value[:limit] + "…"
+	}
+	return value
+}
+
+func remoteDiscoveryLines(value string, limit int) []string {
+	lines := strings.Split(strings.TrimSpace(value), "\n")
+	result := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		result = append(result, line)
+		if len(result) >= limit {
+			break
+		}
+	}
+	return result
+}
+
+func containsCapability(items []string, expected string) bool {
+	for _, item := range items {
+		if item == expected {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *SSHClient) Collect(ctx context.Context, env domain.Environment) ([]domain.Evidence, error) {
