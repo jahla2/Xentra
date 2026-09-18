@@ -78,8 +78,6 @@ func NewRouter(environments *application.EnvironmentService, investigations *app
 	}
 	if h.runners != nil {
 		mux.HandleFunc("POST /api/runner-enrollments", h.createRunnerEnrollment)
-		mux.HandleFunc("POST /api/runners/{id}/poll", h.pollRunner)
-		mux.HandleFunc("POST /api/runners/{id}/tasks/{taskId}/result", h.completeRunnerTask)
 	}
 	if h.incidents != nil {
 		mux.HandleFunc("GET /api/incidents", h.listIncidents)
