@@ -258,14 +258,13 @@ func (h *Handler) connectGitHub(w http.ResponseWriter, r *http.Request) {
 		EnvironmentID string `json:"environmentId"`
 		Owner         string `json:"owner"`
 		Repo          string `json:"repo"`
-		AuthMode      string `json:"authMode"`
 		AccessToken   string `json:"accessToken"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
 		return
 	}
-	item, err := h.integrations.ConnectGitHub(r.Context(), principal.OrganizationID, input.EnvironmentID, input.Owner, input.Repo, input.AuthMode, input.AccessToken)
+	item, err := h.integrations.ConnectGitHub(r.Context(), principal.OrganizationID, input.EnvironmentID, input.Owner, input.Repo, input.AccessToken)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
