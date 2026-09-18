@@ -75,8 +75,8 @@ func (r *PostgresRunnerControlRepository) EnqueueTask(ctx context.Context, item 
 		return err
 	}
 	_, err = r.db.ExecContext(ctx,
-		"INSERT INTO runner_tasks(id,runner_id,tool,arguments,status,created_at) VALUES($1,$2,$3,$4,$5,$6)",
-		item.ID, item.RunnerID, item.Tool, args, item.Status, item.CreatedAt,
+		"INSERT INTO runner_tasks(id,runner_id,tool,arguments,status,trace_parent,trace_state,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+		item.ID, item.RunnerID, item.Tool, args, item.Status, item.TraceParent, item.TraceState, item.CreatedAt,
 	)
 	return err
 }
@@ -104,9 +104,9 @@ UPDATE runner_tasks AS task
 SET status='claimed', claimed_at=NOW()
 FROM next_task
 WHERE task.id=next_task.id
-RETURNING task.id,task.runner_id,task.tool,task.arguments,task.status,task.created_at,task.claimed_at
+RETURNING task.id,task.runner_id,task.tool,task.arguments,task.status,task.trace_parent,task.trace_state,task.created_at,task.claimed_at
 `, runnerID).Scan(
-		&item.ID, &item.RunnerID, &item.Tool, &args, &item.Status, &item.CreatedAt, &claimedAt,
+		&item.ID, &item.RunnerID, &item.Tool, &args, &item.Status, &item.TraceParent, &item.TraceState, &item.CreatedAt, &claimedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.RunnerTask{}, false, nil
@@ -157,10 +157,10 @@ func (r *PostgresRunnerControlRepository) GetTask(ctx context.Context, id string
 	var success sql.NullBool
 	var claimed, completed sql.NullTime
 	err := r.db.QueryRowContext(ctx, `
-SELECT id,runner_id,tool,arguments,status,result_success,result_output,result_error,created_at,claimed_at,completed_at
+SELECT id,runner_id,tool,arguments,status,trace_parent,trace_state,result_success,result_output,result_error,created_at,claimed_at,completed_at
 FROM runner_tasks WHERE id=$1
 `, id).Scan(
-		&item.ID, &item.RunnerID, &item.Tool, &args, &item.Status,
+		&item.ID, &item.RunnerID, &item.Tool, &args, &item.Status, &item.TraceParent, &item.TraceState,
 		&success, &item.Result.Output, &item.Result.Error, &item.CreatedAt, &claimed, &completed,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
