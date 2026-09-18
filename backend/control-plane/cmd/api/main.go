@@ -45,7 +45,10 @@ func main() {
 	credentialService := application.NewCredentialService(stores.credentials, box)
 	authService := application.NewAuthService(stores.auth, sessionTTL())
 
-	runnerClient := clients.NewRunnerClient()
+	runnerClient, err := clients.NewRunnerClientFromEnv()
+	if err != nil {
+		log.Fatal(err)
+	}
 	sshClient := clients.NewSSHClient(credentialService)
 	connections := clients.NewConnectionClient(runnerClient, sshClient)
 	aiClient := clients.NewAIHTTPClient(envOrDefault("XENTRA_AI_URL", "http://localhost:8000"))
