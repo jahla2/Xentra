@@ -1,0 +1,87 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - xentra-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [xentra-internal]
+
+  ai-service:
+    build:
+      context: ./backend/ai-service
+    restart: unless-stopped
+    environment:
+      XENTRA_LLM_BASE_URL: ${XENTRA_LLM_BASE_URL:-https://api.openai.com/v1}
+      XENTRA_LLM_API_KEY: ${XENTRA_LLM_API_KEY:-}
+      XENTRA_LLM_MODEL: ${XENTRA_LLM_MODEL:-}
+      XENTRA_EMBEDDING_MODEL: ${XENTRA_EMBEDDING_MODEL:-}
+      XENTRA_EMBEDDING_DIMENSIONS: ${XENTRA_EMBEDDING_DIMENSIONS:-384}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    networks: [xentra-internal]
+
+  control-plane:
+    build:
+      context: ./backend/control-plane
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ai-service:
+        condition: service_healthy
+    environment:
+      XENTRA_DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      XENTRA_MASTER_KEY: ${XENTRA_MASTER_KEY}
+      XENTRA_AI_URL: http://ai-service:8000
+      XENTRA_CONTROL_ADDR: ${XENTRA_CONTROL_ADDR:-:8080}
+      XENTRA_ALLOWED_ORIGINS: ${XENTRA_ALLOWED_ORIGINS}
+      XENTRA_TRUST_PROXY_HEADERS: "true"
+      XENTRA_RATE_LIMIT_AUTH_PER_MINUTE: ${XENTRA_RATE_LIMIT_AUTH_PER_MINUTE:-20}
+      XENTRA_RATE_LIMIT_API_PER_MINUTE: ${XENTRA_RATE_LIMIT_API_PER_MINUTE:-600}
+      XENTRA_RATE_LIMIT_WEBHOOK_PER_MINUTE: ${XENTRA_RATE_LIMIT_WEBHOOK_PER_MINUTE:-300}
+      XENTRA_METRICS_TOKEN: ${XENTRA_METRICS_TOKEN}
+      XENTRA_SESSION_TTL_HOURS: ${XENTRA_SESSION_TTL_HOURS:-24}
+      XENTRA_GITHUB_APP_ID: ${XENTRA_GITHUB_APP_ID:-}
+      XENTRA_GITHUB_APP_PRIVATE_KEY_FILE: /run/secrets/github_app_private_key.pem
+      XENTRA_GITHUB_API_URL: ${XENTRA_GITHUB_API_URL:-https://api.github.com}
+      XENTRA_RUNNER_INSECURE_DEV: "true"
+    secrets:
+      - github_app_private_key.pem
+    networks: [xentra-internal]
+
+  ui:
+    build:
+      context: ./ui
+      args:
+        VITE_XENTRA_API_URL: ""
+    restart: unless-stopped
+    depends_on: [control-plane]
+    ports:
+      - "8088:80"
+    networks:
+      - xentra-internal
+      - xentra-public
+
+volumes:
+  xentra-postgres:
+
+networks:
+  xentra-internal:
+    internal: true
+  xentra-public:
+
+secrets:
+  github_app_private_key.pem:
+    file: ./secrets/github_app_private_key.pem
