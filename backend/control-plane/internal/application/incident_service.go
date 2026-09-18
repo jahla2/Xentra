@@ -47,7 +47,7 @@ func (s *IncidentService) Create(ctx context.Context, organizationID, environmen
 	events := evidenceTimelineEvents(result.Evidence)
 	if integration, findErr := s.integrations.FindByEnvironment(ctx, organizationID, environmentID); findErr == nil {
 		if fetched, timelineErr := s.timeline.FetchTimeline(ctx, integration); timelineErr == nil {
-			events = fetched
+			events = append(events, fetched...)
 		} else {
 			events = append(events, domain.TimelineEvent{Source: "github", Kind: "integration_error", Summary: timelineErr.Error(), OccurredAt: time.Now().UTC()})
 		}
