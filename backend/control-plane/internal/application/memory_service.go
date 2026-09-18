@@ -80,8 +80,7 @@ func (s *IncidentMemoryService) Recall(
 		}
 		similarity := math.Max(0, 1-match.Distance)
 		output := fmt.Sprintf(
-			"Past incident similarity=%.2f
-%s",
+			"Past incident similarity=%.2f\n%s",
 			similarity,
 			match.Memory.Content,
 		)
@@ -129,10 +128,7 @@ func (s *IncidentMemoryService) Remember(ctx context.Context, incident domain.In
 
 func memoryContent(incident domain.Incident) string {
 	return fmt.Sprintf(
-		"Question: %s
-Summary: %s
-Root cause: %s
-Recommended action: %s",
+		"Question: %s\nSummary: %s\nRoot cause: %s\nRecommended action: %s",
 		incident.Question,
 		incident.Summary,
 		incident.RootCause,
