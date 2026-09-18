@@ -1,12 +1,37 @@
 package application
-import("context";"errors";"fmt";"sync";"sync/atomic";"time";"github.com/jahla2/Xentra/backend/control-plane/internal/domain")
+
+import(
+	"context"
+	"errors"
+	"sync"
+	"time"
+
+	"github.com/jahla2/Xentra/backend/control-plane/internal/domain"
+)
+
 type Investigator interface{Investigate(context.Context,string,string)(domain.InvestigationResult,error)}
 type TimelineClient interface{FetchTimeline(context.Context,domain.RepositoryIntegration)([]domain.TimelineEvent,error)}
 type IncidentRepository interface{Save(context.Context,domain.Incident)error;Get(context.Context,string)(domain.Incident,error);List(context.Context)([]domain.Incident,error)}
-type IncidentService struct{repo IncidentRepository;integrations RepositoryIntegrationRepository;investigator Investigator;timeline TimelineClient;counter atomic.Uint64}
+type IncidentService struct{repo IncidentRepository;integrations RepositoryIntegrationRepository;investigator Investigator;timeline TimelineClient}
+
 func NewIncidentService(repo IncidentRepository,integrations RepositoryIntegrationRepository,investigator Investigator,timeline TimelineClient)*IncidentService{return &IncidentService{repo:repo,integrations:integrations,investigator:investigator,timeline:timeline}}
-func(s *IncidentService)Create(ctx context.Context,environmentID,question string)(domain.Incident,error){if environmentID==""||question==""{return domain.Incident{},errors.New("environmentId and question are required")};result,err:=s.investigator.Investigate(ctx,environmentID,question);if err!=nil{return domain.Incident{},err};events:=[]domain.TimelineEvent{};if integration,findErr:=s.integrations.FindByEnvironment(ctx,environmentID);findErr==nil{if fetched,timelineErr:=s.timeline.FetchTimeline(ctx,integration);timelineErr==nil{events=fetched}else{events=append(events,domain.TimelineEvent{Source:"github",Kind:"integration_error",Summary:timelineErr.Error(),OccurredAt:time.Now().UTC()})}};status:="investigating";if result.Confidence=="high"{status="action_required"};incident:=domain.Incident{ID:fmt.Sprintf("inc-%d",s.counter.Add(1)),EnvironmentID:environmentID,Question:question,Status:status,Summary:result.Summary,RootCause:result.ProbableRootCause,Confidence:result.Confidence,RecommendedAction:result.RecommendedAction,Evidence:result.Evidence,Timeline:events,CreatedAt:time.Now().UTC()};if err:=s.repo.Save(ctx,incident);err!=nil{return domain.Incident{},err};return incident,nil}
+
+func(s *IncidentService)Create(ctx context.Context,environmentID,question string)(domain.Incident,error){
+	if environmentID==""||question==""{return domain.Incident{},errors.New("environmentId and question are required")}
+	result,err:=s.investigator.Investigate(ctx,environmentID,question);if err!=nil{return domain.Incident{},err}
+	events:=[]domain.TimelineEvent{}
+	if integration,findErr:=s.integrations.FindByEnvironment(ctx,environmentID);findErr==nil{
+		if fetched,timelineErr:=s.timeline.FetchTimeline(ctx,integration);timelineErr==nil{events=fetched}else{events=append(events,domain.TimelineEvent{Source:"github",Kind:"integration_error",Summary:timelineErr.Error(),OccurredAt:time.Now().UTC()})}
+	}
+	status:="investigating";if result.Confidence=="high"{status="action_required"}
+	id,err:=newResourceID("inc");if err!=nil{return domain.Incident{},err}
+	incident:=domain.Incident{ID:id,EnvironmentID:environmentID,Question:question,Status:status,Summary:result.Summary,RootCause:result.ProbableRootCause,Confidence:result.Confidence,RecommendedAction:result.RecommendedAction,Evidence:result.Evidence,Timeline:events,CreatedAt:time.Now().UTC()}
+	if err:=s.repo.Save(ctx,incident);err!=nil{return domain.Incident{},err}
+	return incident,nil
+}
+
 func(s *IncidentService)List(ctx context.Context)([]domain.Incident,error){return s.repo.List(ctx)}
+
 type MemoryIncidentRepository struct{mu sync.RWMutex;data map[string]domain.Incident}
 func NewMemoryIncidentRepository()*MemoryIncidentRepository{return &MemoryIncidentRepository{data:map[string]domain.Incident{}}}
 func(r *MemoryIncidentRepository)Save(_ context.Context,item domain.Incident)error{r.mu.Lock();defer r.mu.Unlock();r.data[item.ID]=item;return nil}

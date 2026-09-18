@@ -3,11 +3,10 @@ package application
 import(
 	"context"
 	"errors"
-	"fmt"
 	"regexp"
 	"sync"
-	"sync/atomic"
 	"time"
+
 	"github.com/jahla2/Xentra/backend/control-plane/internal/domain"
 )
 
@@ -21,8 +20,6 @@ type ActionService struct{
 	environments EnvironmentRepository
 	incidents IncidentRepository
 	remediation RemediationClient
-	counter atomic.Uint64
-	auditCounter atomic.Uint64
 }
 
 func NewActionService(actions ActionRepository,audit AuditRepository,environments EnvironmentRepository,incidents IncidentRepository,remediation RemediationClient)*ActionService{return &ActionService{actions:actions,audit:audit,environments:environments,incidents:incidents,remediation:remediation}}
@@ -35,7 +32,8 @@ func(s *ActionService)Propose(ctx context.Context,incidentID,environmentID,actio
 	if !allowedActions[action]{return domain.ActionRequest{},errors.New("action is not allowlisted")}
 	if !safeTargetPattern.MatchString(target){return domain.ActionRequest{},errors.New("target contains unsafe characters")}
 	if _,err:=s.environments.Get(ctx,environmentID);err!=nil{return domain.ActionRequest{},err}
-	item:=domain.ActionRequest{ID:fmt.Sprintf("act-%d",s.counter.Add(1)),IncidentID:incidentID,EnvironmentID:environmentID,Action:action,Target:target,Reason:reason,Status:"pending_approval",CreatedAt:time.Now().UTC()}
+	id,err:=newResourceID("act");if err!=nil{return domain.ActionRequest{},err}
+	item:=domain.ActionRequest{ID:id,IncidentID:incidentID,EnvironmentID:environmentID,Action:action,Target:target,Reason:reason,Status:"pending_approval",CreatedAt:time.Now().UTC()}
 	if err:=s.actions.Save(ctx,item);err!=nil{return domain.ActionRequest{},err}
 	_ = s.appendAudit(ctx,environmentID,"xentra-ai","action_proposed",action+" "+target,true)
 	return item,nil
@@ -52,19 +50,34 @@ func(s *ActionService)Approve(ctx context.Context,id,approvedBy string)(domain.A
 
 	result,execErr:=s.remediation.ExecuteAction(ctx,env,item.Action,item.Target)
 	now:=time.Now().UTC();item.ExecutedAt=&now;item.Result=result
-	if execErr!=nil{item.Status="failed";item.Result=execErr.Error();_ = s.actions.Save(ctx,item);_ = s.appendAudit(ctx,item.EnvironmentID,"xentra-runner","action_executed",execErr.Error(),false);return item,nil}
+	if execErr!=nil{
+		item.Status="failed";item.Result=execErr.Error();_ = s.actions.Save(ctx,item)
+		_ = s.appendAudit(ctx,item.EnvironmentID,"xentra-runner","action_executed",execErr.Error(),false)
+		return item,nil
+	}
 
 	verification,verifyErr:=s.remediation.VerifyAction(ctx,env,item.Action,item.Target)
-	if verifyErr!=nil{item.Status="verification_failed";item.Verification=domain.VerificationResult{Healthy:false,Summary:verifyErr.Error()}}else{item.Verification=verification;if verification.Healthy{item.Status="completed"}else{item.Status="verification_failed"}}
+	if verifyErr!=nil{
+		item.Status="verification_failed";item.Verification=domain.VerificationResult{Healthy:false,Summary:verifyErr.Error()}
+	}else{
+		item.Verification=verification
+		if verification.Healthy{item.Status="completed"}else{item.Status="verification_failed"}
+	}
 	if err:=s.actions.Save(ctx,item);err!=nil{return domain.ActionRequest{},err}
 	success:=item.Status=="completed"
 	_ = s.appendAudit(ctx,item.EnvironmentID,"xentra-runner","action_executed",item.Result,success)
-	if success&&item.IncidentID!=""{if incident,getErr:=s.incidents.Get(ctx,item.IncidentID);getErr==nil{incident.Status="resolved";_ = s.incidents.Save(ctx,incident)}}
+	if success&&item.IncidentID!=""{
+		if incident,getErr:=s.incidents.Get(ctx,item.IncidentID);getErr==nil{incident.Status="resolved";_ = s.incidents.Save(ctx,incident)}
+	}
 	return item,nil
 }
 
 func(s *ActionService)Audit(ctx context.Context)([]domain.AuditEvent,error){return s.audit.List(ctx)}
-func(s *ActionService)appendAudit(ctx context.Context,environmentID,actor,eventType,detail string,success bool)error{return s.audit.Append(ctx,domain.AuditEvent{ID:fmt.Sprintf("audit-%d",s.auditCounter.Add(1)),EnvironmentID:environmentID,Actor:actor,EventType:eventType,Detail:detail,Success:success,CreatedAt:time.Now().UTC()})}
+
+func(s *ActionService)appendAudit(ctx context.Context,environmentID,actor,eventType,detail string,success bool)error{
+	id,err:=newResourceID("audit");if err!=nil{return err}
+	return s.audit.Append(ctx,domain.AuditEvent{ID:id,EnvironmentID:environmentID,Actor:actor,EventType:eventType,Detail:detail,Success:success,CreatedAt:time.Now().UTC()})
+}
 
 type MemoryActionRepository struct{mu sync.RWMutex;data map[string]domain.ActionRequest}
 func NewMemoryActionRepository()*MemoryActionRepository{return &MemoryActionRepository{data:map[string]domain.ActionRequest{}}}
