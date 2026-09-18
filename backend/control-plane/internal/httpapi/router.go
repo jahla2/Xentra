@@ -13,6 +13,7 @@ type Services struct {
 	Projects     *application.ProjectService
 	Integrations *application.IntegrationService
 	Webhooks     *application.GitHubWebhookService
+	Runners      *application.RunnerControlService
 	Incidents    *application.IncidentService
 	Actions      *application.ActionService
 }
@@ -24,6 +25,7 @@ type Handler struct {
 	investigations *application.InvestigationService
 	integrations   *application.IntegrationService
 	webhooks       *application.GitHubWebhookService
+	runners        *application.RunnerControlService
 	incidents      *application.IncidentService
 	actions        *application.ActionService
 }
@@ -35,6 +37,7 @@ func NewRouter(environments *application.EnvironmentService, investigations *app
 		h.projects = extras[0].Projects
 		h.integrations = extras[0].Integrations
 		h.webhooks = extras[0].Webhooks
+		h.runners = extras[0].Runners
 		h.incidents = extras[0].Incidents
 		h.actions = extras[0].Actions
 	}
@@ -72,6 +75,11 @@ func NewRouter(environments *application.EnvironmentService, investigations *app
 	}
 	if h.webhooks != nil {
 		mux.HandleFunc("POST /api/webhooks/github/{id}", h.handleGitHubWebhook)
+	}
+	if h.runners != nil {
+		mux.HandleFunc("POST /api/runner-enrollments", h.createRunnerEnrollment)
+		mux.HandleFunc("POST /api/runners/{id}/poll", h.pollRunner)
+		mux.HandleFunc("POST /api/runners/{id}/tasks/{taskId}/result", h.completeRunnerTask)
 	}
 	if h.incidents != nil {
 		mux.HandleFunc("GET /api/incidents", h.listIncidents)
