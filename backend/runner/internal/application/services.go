@@ -36,12 +36,24 @@ func (s *ToolService) Execute(ctx context.Context, tool string, args map[string]
 		name, commandArgs = "uname", []string{"-a"}
 	case "system.disk":
 		name, commandArgs = "df", []string{"-h"}
+	case "system.cpu":
+		name, commandArgs = "lscpu", nil
+	case "system.memory":
+		name, commandArgs = "free", []string{"-m"}
 	case "docker.list":
 		name, commandArgs = "docker", []string{"ps", "--format", "{{.Names}}\t{{.Status}}"}
 	case "docker.logs":
 		container := args["container"]
 		if !safeToolTarget(container) { return domain.ToolResult{Tool: tool, Success: false, Error: "valid container is required"} }
 		name, commandArgs = "docker", []string{"logs", "--tail", "200", container}
+	case "docker.inspect":
+		container := args["container"]
+		if !safeToolTarget(container) { return domain.ToolResult{Tool: tool, Success: false, Error: "valid container is required"} }
+		name, commandArgs = "docker", []string{"inspect", container}
+	case "docker.stats":
+		container := args["container"]
+		if !safeToolTarget(container) { return domain.ToolResult{Tool: tool, Success: false, Error: "valid container is required"} }
+		name, commandArgs = "docker", []string{"stats", "--no-stream", "--format", "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}\t{{.BlockIO}}", container}
 	case "docker.restart":
 		container := args["container"]
 		if !safeToolTarget(container) { return domain.ToolResult{Tool: tool, Success: false, Error: "valid container is required"} }
@@ -58,6 +70,10 @@ func (s *ToolService) Execute(ctx context.Context, tool string, args map[string]
 		service := args["service"]
 		if !safeToolTarget(service) { return domain.ToolResult{Tool: tool, Success: false, Error: "valid service is required"} }
 		name, commandArgs = "systemctl", []string{"is-active", service}
+	case "system.journal":
+		service := args["service"]
+		if !safeToolTarget(service) { return domain.ToolResult{Tool: tool, Success: false, Error: "valid service is required"} }
+		name, commandArgs = "journalctl", []string{"-u", service, "-n", "200", "--no-pager"}
 	default:
 		return domain.ToolResult{Tool: tool, Success: false, Error: "tool is not allowlisted"}
 	}

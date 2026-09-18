@@ -38,6 +38,17 @@ func (c *ConnectionClient) Collect(ctx context.Context, env domain.Environment) 
 	}
 }
 
+func (c *ConnectionClient) ExecuteReadTool(ctx context.Context, env domain.Environment, request domain.ToolRequest) (domain.Evidence, error) {
+	switch env.ConnectionType {
+	case "", "runner":
+		return c.runner.ExecuteReadTool(ctx, env, request)
+	case "ssh":
+		return c.ssh.ExecuteReadTool(ctx, env, request)
+	default:
+		return domain.Evidence{}, errors.New("unsupported connection type")
+	}
+}
+
 func (c *ConnectionClient) ExecuteAction(ctx context.Context, env domain.Environment, action, target string) (string, error) {
 	switch env.ConnectionType {
 	case "", "runner":

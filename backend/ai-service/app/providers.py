@@ -7,7 +7,12 @@ from typing import Protocol
 import httpx
 from pydantic import ValidationError
 
-from app.schemas import InvestigationFinding, InvestigationRequest
+from app.schemas import (
+    AgentDecision,
+    AgentInvestigationRequest,
+    InvestigationFinding,
+    InvestigationRequest,
+)
 
 
 class ProviderError(RuntimeError):
@@ -18,6 +23,9 @@ class InvestigationProvider(Protocol):
     name: str
 
     def investigate(self, request: InvestigationRequest) -> InvestigationFinding:
+        ...
+
+    def decide(self, request: AgentInvestigationRequest) -> AgentDecision:
         ...
 
 
@@ -60,6 +68,9 @@ class HeuristicProvider:
             recommendedAction="Collect application-specific logs or add a health endpoint to narrow the investigation.",
         )
 
+    def decide(self, request: AgentInvestigationRequest) -> AgentDecision:
+        return AgentDecision(mode="complete", finding=self.investigate(request))
+
 
 class OpenAICompatibleProvider:
     name = "openai-compatible"
@@ -69,27 +80,56 @@ class OpenAICompatibleProvider:
         self._client = client or httpx.Client(timeout=config.timeout_seconds)
 
     def investigate(self, request: InvestigationRequest) -> InvestigationFinding:
-        prompt = self._build_prompt(request)
+        system = (
+            "You are Xentra, an evidence-grounded DevOps incident investigator. "
+            "Use only supplied evidence. Never invent logs, deployment events, commands, credentials, "
+            "or infrastructure state. If evidence is insufficient, lower confidence. Recommended actions "
+            "are advisory and cannot bypass human approval. Return JSON only with exactly: summary, "
+            "confidence, probableRootCause, recommendedAction. confidence must be low, medium, or high."
+        )
+        parsed = self._call_json(system, self._build_prompt(request))
+        try:
+            return InvestigationFinding.model_validate(parsed)
+        except ValidationError as exc:
+            raise ProviderError(f"LLM provider returned an invalid investigation response: {exc}") from exc
+
+    def decide(self, request: AgentInvestigationRequest) -> AgentDecision:
+        tool_catalog = "\n".join(
+            f"- {tool}: {TOOL_DESCRIPTIONS.get(tool, 'read-only diagnostic tool')}"
+            for tool in request.availableTools
+        )
+        system = (
+            "You are Xentra's bounded DevOps investigation agent. Use only supplied evidence and the "
+            "listed read-only typed tools. Never request mutation, shell, file-write, restart, delete, "
+            "credential, or arbitrary-command tools. If you have enough evidence, return "
+            '{"mode":"complete","toolRequests":[],"finding":{"summary":"...","confidence":"low|medium|high",'
+            '"probableRootCause":"...","recommendedAction":"..."}}. '
+            "If more evidence is necessary, return "
+            '{"mode":"tools","toolRequests":[{"tool":"...","arguments":{"key":"value"}}],"finding":null}. '
+            "Request at most three tools and only tools from the supplied list."
+        )
+        user = (
+            self._build_prompt(request)
+            + f"\n\nRemaining investigation steps: {request.remainingSteps}"
+            + "\nAvailable read-only tools:\n"
+            + tool_catalog
+        )
+        parsed = self._call_json(system, user)
+        try:
+            return AgentDecision.model_validate(parsed)
+        except ValidationError as exc:
+            raise ProviderError(f"LLM provider returned an invalid agent decision: {exc}") from exc
+
+    def _call_json(self, system: str, user: str) -> dict:
         payload = {
             "model": self._config.model,
             "temperature": 0.1,
             "response_format": {"type": "json_object"},
             "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are Xentra, an evidence-grounded DevOps incident investigator. "
-                        "Use only the supplied evidence. Never invent logs, deployment events, commands, "
-                        "credentials, or infrastructure state. If evidence is insufficient, say so and lower "
-                        "confidence. Recommended actions are advisory only and must not bypass Xentra's human "
-                        "approval policy. Return JSON only with exactly these keys: summary, confidence, "
-                        "probableRootCause, recommendedAction. confidence must be low, medium, or high."
-                    ),
-                },
-                {"role": "user", "content": prompt},
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
             ],
         }
-
         try:
             response = self._client.post(
                 self._chat_completions_url(),
@@ -102,10 +142,9 @@ class OpenAICompatibleProvider:
             response.raise_for_status()
             body = response.json()
             content = body["choices"][0]["message"]["content"]
-            parsed = json.loads(self._strip_json_fence(content))
-            return InvestigationFinding.model_validate(parsed)
-        except (httpx.HTTPError, KeyError, IndexError, TypeError, json.JSONDecodeError, ValidationError) as exc:
-            raise ProviderError(f"LLM provider returned an invalid investigation response: {exc}") from exc
+            return json.loads(self._strip_json_fence(content))
+        except (httpx.HTTPError, KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
+            raise ProviderError(f"LLM provider returned invalid JSON: {exc}") from exc
 
     def _chat_completions_url(self) -> str:
         return self._config.base_url.rstrip("/") + "/chat/completions"
@@ -149,3 +188,17 @@ class OpenAICompatibleProvider:
                 lines = lines[:-1]
             text = "\n".join(lines)
         return text.strip()
+
+
+TOOL_DESCRIPTIONS = {
+    "system.info": "kernel and operating system information",
+    "system.disk": "filesystem usage",
+    "system.cpu": "CPU topology and capabilities",
+    "system.memory": "memory usage",
+    "system.service_status": "systemd service active state; argument: service",
+    "system.journal": "last 200 systemd journal lines; argument: service",
+    "docker.list": "running Docker container names and status",
+    "docker.logs": "last 200 container log lines; argument: container",
+    "docker.inspect": "Docker container metadata; argument: container",
+    "docker.stats": "one-shot CPU/memory/network/block metrics; argument: container",
+}
