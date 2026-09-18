@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jahla2/Xentra/backend/runner/internal/application"
+	"github.com/jahla2/Xentra/backend/runner/internal/domain"
 )
 
 type Agent struct {
@@ -46,7 +47,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 
 		result := a.tools.Execute(ctx, task.Tool, task.Arguments)
-		if err := a.client.Complete(ctx, task.ID, result); err != nil {
+		if err := a.completeWithRetry(ctx, task.ID, result); err != nil {
 			log.Printf("outbound Runner failed to submit task %s result: %v", task.ID, err)
 		}
 	}
@@ -61,4 +62,19 @@ func sleepContext(ctx context.Context, duration time.Duration) bool {
 	case <-timer.C:
 		return true
 	}
+}
+
+func (a *Agent) completeWithRetry(ctx context.Context, taskID string, result domain.ToolResult) error {
+	var lastErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		if err := a.client.Complete(ctx, taskID, result); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+		if !sleepContext(ctx, time.Duration(attempt+1)*time.Second) {
+			return ctx.Err()
+		}
+	}
+	return lastErr
 }
