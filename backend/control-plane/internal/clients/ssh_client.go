@@ -44,6 +44,8 @@ func (c *SSHClient) Discover(ctx context.Context, env domain.Environment) (domai
 		"systemd": "command -v systemctl",
 		"nginx": "command -v nginx",
 		"git": "command -v git",
+		"http": "command -v curl",
+		"dns": "command -v getent",
 	} {
 		if _, err := runSSH(client, command); err == nil { caps = append(caps, name) }
 	}
