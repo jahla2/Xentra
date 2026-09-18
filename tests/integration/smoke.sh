@@ -42,6 +42,29 @@ wait_http() {
   return 1
 }
 
+generate_runner_mtls() {
+  openssl req -x509 -newkey rsa:2048 -nodes     -keyout "$TMP/runner-ca.key"     -out "$TMP/runner-ca.crt"     -subj "/CN=Xentra Integration Runner CA"     -days 1 >/dev/null 2>&1
+
+  openssl req -newkey rsa:2048 -nodes     -keyout "$TMP/runner-control.key"     -out "$TMP/runner-control.csr"     -subj "/CN=127.0.0.1" >/dev/null 2>&1
+  printf '%s\n' 'subjectAltName=IP:127.0.0.1' 'extendedKeyUsage=serverAuth' > "$TMP/runner-control.ext"
+  openssl x509 -req     -in "$TMP/runner-control.csr"     -CA "$TMP/runner-ca.crt"     -CAkey "$TMP/runner-ca.key"     -CAcreateserial     -out "$TMP/runner-control.crt"     -days 1     -extfile "$TMP/runner-control.ext" >/dev/null 2>&1
+
+  openssl req -newkey rsa:2048 -nodes     -keyout "$TMP/runner-client.key"     -out "$TMP/runner-client.csr"     -subj "/CN=xentra-ci-runner" >/dev/null 2>&1
+  printf '%s\n' 'extendedKeyUsage=clientAuth' > "$TMP/runner-client.ext"
+  openssl x509 -req     -in "$TMP/runner-client.csr"     -CA "$TMP/runner-ca.crt"     -CAkey "$TMP/runner-ca.key"     -CAserial "$TMP/runner-ca.srl"     -out "$TMP/runner-client.crt"     -days 1     -extfile "$TMP/runner-client.ext" >/dev/null 2>&1
+}
+
+wait_runner_control() {
+  for _ in $(seq 1 90); do
+    if curl -fsS       --cert "$TMP/runner-client.crt"       --key "$TMP/runner-client.key"       --cacert "$TMP/runner-ca.crt"       https://127.0.0.1:8081/health >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "timed out waiting for mTLS Runner control" >&2
+  return 1
+}
+
 request() {
   method=$1
   path=$2
@@ -77,12 +100,15 @@ status_request() {
 start_control() {
   (
     cd "$ROOT/backend/control-plane"
-    exec env       XENTRA_CONTROL_ADDR=127.0.0.1:8080       XENTRA_RUNNER_CONTROL_ADDR=127.0.0.1:8081       XENTRA_RUNNER_CONTROL_INSECURE_DEV=true       XENTRA_AI_URL=http://127.0.0.1:8000       XENTRA_DATABASE_URL="$XENTRA_DATABASE_URL"       XENTRA_MASTER_KEY="$XENTRA_MASTER_KEY"       XENTRA_RUNNER_INSECURE_DEV=true       go run ./cmd/api
+    exec env       XENTRA_CONTROL_ADDR=127.0.0.1:8080       XENTRA_RUNNER_CONTROL_ADDR=127.0.0.1:8081       XENTRA_RUNNER_CONTROL_TLS_CERT="$TMP/runner-control.crt"       XENTRA_RUNNER_CONTROL_TLS_KEY="$TMP/runner-control.key"       XENTRA_RUNNER_CONTROL_CLIENT_CA="$TMP/runner-ca.crt"       XENTRA_AI_URL=http://127.0.0.1:8000       XENTRA_DATABASE_URL="$XENTRA_DATABASE_URL"       XENTRA_MASTER_KEY="$XENTRA_MASTER_KEY"       XENTRA_RUNNER_INSECURE_DEV=true       go run ./cmd/api
   ) >"$CONTROL_LOG" 2>&1 &
   CONTROL_PID=$!
   wait_http http://127.0.0.1:8080/health
-  wait_http http://127.0.0.1:8081/health
+  wait_runner_control
 }
+
+echo "Generating Runner-control mTLS certificates"
+generate_runner_mtls
 
 echo "Starting AI service"
 (
@@ -144,10 +170,12 @@ echo "Starting outbound Runner agent"
 (
   cd "$ROOT/backend/runner"
   exec env \
-    XENTRA_CONTROL_URL=http://127.0.0.1:8081 \
-    XENTRA_CONTROL_INSECURE_DEV=true \
+    XENTRA_CONTROL_URL=https://127.0.0.1:8081 \
     XENTRA_RUNNER_ID="$OUTBOUND_RUNNER_ID" \
     XENTRA_RUNNER_TOKEN="$OUTBOUND_RUNNER_TOKEN" \
+    XENTRA_CONTROL_CLIENT_CERT="$TMP/runner-client.crt" \
+    XENTRA_CONTROL_CLIENT_KEY="$TMP/runner-client.key" \
+    XENTRA_CONTROL_SERVER_CA="$TMP/runner-ca.crt" \
     XENTRA_CONTROL_POLL_SECONDS=1 \
     go run ./cmd/runner
 ) >"$OUTBOUND_RUNNER_LOG" 2>&1 &
