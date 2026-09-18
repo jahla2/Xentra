@@ -56,9 +56,14 @@ services:
       XENTRA_GITHUB_APP_ID: ${XENTRA_GITHUB_APP_ID:-}
       XENTRA_GITHUB_APP_PRIVATE_KEY_FILE: /run/secrets/github_app_private_key.pem
       XENTRA_GITHUB_API_URL: ${XENTRA_GITHUB_API_URL:-https://api.github.com}
-      XENTRA_RUNNER_INSECURE_DEV: "true"
+      XENTRA_RUNNER_CLIENT_CERT: /run/secrets/runner_client_cert.pem
+      XENTRA_RUNNER_CLIENT_KEY: /run/secrets/runner_client_key.pem
+      XENTRA_RUNNER_SERVER_CA: /run/secrets/runner_server_ca.pem
     secrets:
       - github_app_private_key.pem
+      - runner_client_cert.pem
+      - runner_client_key.pem
+      - runner_server_ca.pem
     networks: [xentra-internal]
 
   ui:
@@ -85,3 +90,9 @@ networks:
 secrets:
   github_app_private_key.pem:
     file: ./secrets/github_app_private_key.pem
+  runner_client_cert.pem:
+    file: ./secrets/runner_client_cert.pem
+  runner_client_key.pem:
+    file: ./secrets/runner_client_key.pem
+  runner_server_ca.pem:
+    file: ./secrets/runner_server_ca.pem
