@@ -3,6 +3,8 @@ package application
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -42,7 +44,7 @@ func (s *IncidentService) Create(ctx context.Context, organizationID, environmen
 	if err != nil {
 		return domain.Incident{}, err
 	}
-	events := []domain.TimelineEvent{}
+	events := evidenceTimelineEvents(result.Evidence)
 	if integration, findErr := s.integrations.FindByEnvironment(ctx, organizationID, environmentID); findErr == nil {
 		if fetched, timelineErr := s.timeline.FetchTimeline(ctx, integration); timelineErr == nil {
 			events = fetched
@@ -50,6 +52,7 @@ func (s *IncidentService) Create(ctx context.Context, organizationID, environmen
 			events = append(events, domain.TimelineEvent{Source: "github", Kind: "integration_error", Summary: timelineErr.Error(), OccurredAt: time.Now().UTC()})
 		}
 	}
+	sort.SliceStable(events, func(i, j int) bool { return events[i].OccurredAt.Before(events[j].OccurredAt) })
 	status := "investigating"
 	if result.Confidence == "high" {
 		status = "action_required"
@@ -110,4 +113,23 @@ func (r *MemoryIncidentRepository) List(_ context.Context, organizationID string
 		}
 	}
 	return items, nil
+}
+
+func evidenceTimelineEvents(evidence []domain.Evidence) []domain.TimelineEvent {
+	events := make([]domain.TimelineEvent, 0, len(evidence))
+	for _, item := range evidence {
+		summary := fmt.Sprintf("Collected %s (%d ms)", item.Source, item.DurationMS)
+		kind := "evidence"
+		if !item.Success {
+			summary = fmt.Sprintf("Failed %s (%d ms)", item.Source, item.DurationMS)
+			kind = "evidence_error"
+		}
+		events = append(events, domain.TimelineEvent{
+			Source: item.Source,
+			Kind: kind,
+			Summary: summary,
+			OccurredAt: item.OccurredAt,
+		})
+	}
+	return events
 }
