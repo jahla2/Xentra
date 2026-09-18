@@ -32,7 +32,7 @@ type WorkspaceContextValue={
  createMember:(email:string,password:string)=>Promise<void>;
  createProject:(name:string,description:string)=>Promise<void>;
  createEnvironment:(input:CreateEnvironmentInput)=>Promise<void>;
- createRunnerEnrollment:(projectId:string,name:string,type:string)=>Promise<void>;
+ createRunnerEnrollment:(projectId:string,name:string,type:string,healthUrl:string)=>Promise<void>;
  investigate:()=>Promise<void>;
  createIncident:()=>Promise<void>;
  connectGitHub:(owner:string,repo:string,authMode:GitHubAuthMode,accessToken:string)=>Promise<void>;
@@ -154,10 +154,10 @@ export function WorkspaceProvider({children}:{children:React.ReactNode}){
   await run(()=>api.createEnvironment(input),environment=>setSelectedEnvironmentId(environment.id));
  }
 
- async function createRunnerEnrollment(projectId:string,name:string,type:string){
+ async function createRunnerEnrollment(projectId:string,name:string,type:string,healthUrl:string){
   setRunnerEnrollment(null);
   await run(
-   ()=>api.createRunnerEnrollment(projectId,name,type),
+   ()=>api.createRunnerEnrollment(projectId,name,type,healthUrl),
    enrollment=>{
     setRunnerEnrollment(enrollment);
     setSelectedEnvironmentId(enrollment.environment.id);
