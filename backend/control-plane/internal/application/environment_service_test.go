@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/jahla2/Xentra/backend/control-plane/internal/domain"
 )
@@ -19,16 +20,22 @@ func (f fakeSSHCredentialWriter) StoreSSH(context.Context, domain.SSHCredential)
 	return f.id, nil
 }
 
+func projectRepoForTest() *MemoryProjectRepository {
+	repo := NewMemoryProjectRepository()
+	_ = repo.Save(context.Background(), domain.Project{ID: "prj-1", OrganizationID: "org-a", Name: "API", CreatedAt: time.Now()})
+	return repo
+}
+
 func TestCreateRunnerEnvironmentDiscoversCapabilities(t *testing.T) {
 	repo := NewMemoryEnvironmentRepository()
 	discovery := fakeDiscoveryClient{domain.Discovery{OS: "linux", Hostname: "prod-01", Capabilities: []string{"docker", "systemd"}}}
-	service := NewEnvironmentService(repo, discovery, nil)
+	service := NewEnvironmentService(repo, projectRepoForTest(), discovery, nil)
 
-	env, err := service.Create(context.Background(), "org-a", CreateEnvironmentInput{Name: "Production", Type: "production", ConnectionType: "runner", RunnerURL: "http://runner:8090"})
+	env, err := service.Create(context.Background(), "org-a", CreateEnvironmentInput{ProjectID: "prj-1", Name: "Production", Type: "production", ConnectionType: "runner", RunnerURL: "http://runner:8090"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if env.OrganizationID != "org-a" || env.ConnectionType != "runner" || env.Hostname != "prod-01" || len(env.Capabilities) != 2 {
+	if env.ProjectID != "prj-1" || env.OrganizationID != "org-a" || env.ConnectionType != "runner" || env.Hostname != "prod-01" || len(env.Capabilities) != 2 {
 		t.Fatalf("unexpected environment: %#v", env)
 	}
 }
@@ -36,9 +43,9 @@ func TestCreateRunnerEnvironmentDiscoversCapabilities(t *testing.T) {
 func TestCreateSSHEnvironmentStoresCredentialReferenceOnly(t *testing.T) {
 	repo := NewMemoryEnvironmentRepository()
 	discovery := fakeDiscoveryClient{domain.Discovery{OS: "linux", Hostname: "ssh-prod", Capabilities: []string{"docker"}}}
-	service := NewEnvironmentService(repo, discovery, fakeSSHCredentialWriter{id: "cred-safe"})
+	service := NewEnvironmentService(repo, projectRepoForTest(), discovery, fakeSSHCredentialWriter{id: "cred-safe"})
 
-	env, err := service.Create(context.Background(), "org-a", CreateEnvironmentInput{Name: "SSH Production", ConnectionType: "ssh", SSHHost: "10.0.0.10", SSHUser: "ubuntu", SSHPrivateKey: "PRIVATE", SSHHostKeyFingerprint: "SHA256:test"})
+	env, err := service.Create(context.Background(), "org-a", CreateEnvironmentInput{ProjectID: "prj-1", Name: "SSH Production", ConnectionType: "ssh", SSHHost: "10.0.0.10", SSHUser: "ubuntu", SSHPrivateKey: "PRIVATE", SSHHostKeyFingerprint: "SHA256:test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,10 +54,21 @@ func TestCreateSSHEnvironmentStoresCredentialReferenceOnly(t *testing.T) {
 	}
 }
 
+func TestEnvironmentCannotUseProjectFromAnotherOrganization(t *testing.T) {
+	projects := NewMemoryProjectRepository()
+	_ = projects.Save(context.Background(), domain.Project{ID: "prj-b", OrganizationID: "org-b", Name: "Other"})
+	service := NewEnvironmentService(NewMemoryEnvironmentRepository(), projects, fakeDiscoveryClient{}, nil)
+
+	_, err := service.Create(context.Background(), "org-a", CreateEnvironmentInput{ProjectID: "prj-b", Name: "Prod", ConnectionType: "runner", RunnerURL: "http://runner:8090"})
+	if err == nil {
+		t.Fatal("expected cross-organization project to be rejected")
+	}
+}
+
 func TestEnvironmentRepositoryIsolatesOrganizations(t *testing.T) {
 	repo := NewMemoryEnvironmentRepository()
-	_ = repo.Save(context.Background(), domain.Environment{ID: "env-a", OrganizationID: "org-a"})
-	_ = repo.Save(context.Background(), domain.Environment{ID: "env-b", OrganizationID: "org-b"})
+	_ = repo.Save(context.Background(), domain.Environment{ID: "env-a", OrganizationID: "org-a", ProjectID: "prj-a"})
+	_ = repo.Save(context.Background(), domain.Environment{ID: "env-b", OrganizationID: "org-b", ProjectID: "prj-b"})
 
 	items, _ := repo.List(context.Background(), "org-a")
 	if len(items) != 1 || items[0].ID != "env-a" {

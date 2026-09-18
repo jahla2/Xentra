@@ -32,7 +32,8 @@ func TestMemberCanReadButCannotCreateEnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	environments := application.NewEnvironmentService(application.NewMemoryEnvironmentRepository(), rbacDiscovery{}, nil)
+	projects := application.NewMemoryProjectRepository()
+	environments := application.NewEnvironmentService(application.NewMemoryEnvironmentRepository(), projects, rbacDiscovery{}, nil)
 	router := NewRouter(environments, nil, Services{Auth: auth})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/environments", nil)
@@ -43,7 +44,7 @@ func TestMemberCanReadButCannotCreateEnvironment(t *testing.T) {
 		t.Fatalf("member read status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
-	body := bytes.NewBufferString(`{"name":"Prod","connectionType":"runner","runnerUrl":"http://runner:8090"}`)
+	body := bytes.NewBufferString(`{"projectId":"prj-any","name":"Prod","connectionType":"runner","runnerUrl":"http://runner:8090"}`)
 	req = httptest.NewRequest(http.MethodPost, "/api/environments", body)
 	req.Header.Set("Authorization", "Bearer "+member.Token)
 	rec = httptest.NewRecorder()

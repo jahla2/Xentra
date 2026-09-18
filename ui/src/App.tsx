@@ -1,7 +1,7 @@
 import {FormEvent,useEffect,useState} from 'react';
-import {api,ActionRequest,AuditEvent,AuthSession,CreateEnvironmentInput,Environment,Incident,InvestigationResult,Principal} from './api';
+import {api,ActionRequest,AuditEvent,AuthSession,CreateEnvironmentInput,Environment,Incident,InvestigationResult,Principal,Project} from './api';
 
-const nav=['Overview','Environments','Incidents','Ask AI','Approvals','Audit'];
+const nav=['Overview','Projects','Environments','Incidents','Ask AI','Approvals','Audit'];
 
 export function App(){
  const[principal,setPrincipal]=useState<Principal|null>(null);
@@ -9,6 +9,8 @@ export function App(){
  const[authMode,setAuthMode]=useState<'login'|'register'>('login');
  const[authForm,setAuthForm]=useState({email:'',password:'',organizationName:''});
  const[memberForm,setMemberForm]=useState({email:'',password:''});
+ const[projects,setProjects]=useState<Project[]>([]);
+ const[projectForm,setProjectForm]=useState({name:'Core Platform',description:''});
  const[environments,setEnvironments]=useState<Environment[]>([]);
  const[incidents,setIncidents]=useState<Incident[]>([]);
  const[audit,setAudit]=useState<AuditEvent[]>([]);
@@ -19,14 +21,15 @@ export function App(){
  const[action,setAction]=useState<ActionRequest|null>(null);
  const[error,setError]=useState('');
  const[loading,setLoading]=useState(false);
- const[form,setForm]=useState<CreateEnvironmentInput>({name:'Production Ubuntu',type:'production',connectionType:'runner',runnerUrl:'http://localhost:8090',sshPort:22});
+ const[form,setForm]=useState<CreateEnvironmentInput>({projectId:'',name:'Production Ubuntu',type:'production',connectionType:'runner',runnerUrl:'http://localhost:8090',sshPort:22});
  const[github,setGitHub]=useState({owner:'',repo:'',accessToken:''});
  const[remediation,setRemediation]=useState({action:'docker.restart',target:'',reason:'Recover unhealthy service'});
 
  const refresh=async()=>{
   try{
-   const[envItems,incidentItems,auditItems]=await Promise.all([api.listEnvironments(),api.listIncidents(),api.listAudit()]);
-   setEnvironments(envItems);setIncidents(incidentItems);setAudit(auditItems);
+   const[projectItems,envItems,incidentItems,auditItems]=await Promise.all([api.listProjects(),api.listEnvironments(),api.listIncidents(),api.listAudit()]);
+   setProjects(projectItems);setEnvironments(envItems);setIncidents(incidentItems);setAudit(auditItems);
+   if(projectItems[0])setForm(current=>current.projectId?current:{...current,projectId:projectItems[0].id});
    if(!selected&&envItems[0])setSelected(envItems[0].id);
   }catch(err){setError((err as Error).message)}
  };
@@ -54,9 +57,10 @@ export function App(){
 
  async function logout(){
   try{await api.logout()}catch{/* session may already be expired */}
-  api.setToken(null);setPrincipal(null);setEnvironments([]);setIncidents([]);setAudit([]);setSelected('');
+  api.setToken(null);setPrincipal(null);setProjects([]);setEnvironments([]);setIncidents([]);setAudit([]);setSelected('');
  }
 
+ async function createProject(event:FormEvent){event.preventDefault();await run(()=>api.createProject(projectForm.name,projectForm.description),project=>{setProjectForm({name:'',description:''});setForm(current=>({...current,projectId:project.id}))})}
  async function addEnvironment(event:FormEvent){event.preventDefault();await run(()=>api.createEnvironment(form),env=>setSelected(env.id))}
  async function investigate(event:FormEvent){event.preventDefault();if(!selected)return;setResult(null);await run(()=>api.investigate(selected,question),setResult)}
  async function connectGitHub(event:FormEvent){event.preventDefault();if(!selected)return;await run(()=>api.connectGitHub(selected,github.owner,github.repo,github.accessToken),()=>setGitHub(current=>({...current,accessToken:''})))}
@@ -90,9 +94,20 @@ export function App(){
    <header><div><p className="eyebrow">DEVOPS COMMAND CENTER</p><h1>Infrastructure overview</h1></div><span className="status">● {principal.organizationName}</span></header>
    {error&&<div className="error">{error}</div>}
    <section className="grid metrics">
-    <article><small>Environments</small><strong>{environments.length}</strong><span>Organization scoped</span></article>
+    <article><small>Projects</small><strong>{projects.length}</strong><span>Organization scoped</span></article>
+    <article><small>Environments</small><strong>{environments.length}</strong><span>Attached to projects</span></article>
     <article><small>Incidents</small><strong>{incidents.filter(i=>i.status!=='resolved').length}</strong><span>Open / action required</span></article>
     <article><small>Audit events</small><strong>{audit.length}</strong><span>Recorded actions</span></article>
+   </section>
+
+   <section className="panel">
+    <div className="panel-title"><h2>Projects</h2><span>{isOwner?'Organize environments':'Read access'}</span></div>
+    {projects.map(project=><button className={`env ${form.projectId===project.id?'selected':''}`} key={project.id} onClick={()=>update({projectId:project.id})}><span className="dot"/><div><b>{project.name}</b><small>{project.description||'No description'}</small></div></button>)}
+    {isOwner&&<form className="stack" onSubmit={createProject}>
+     <input value={projectForm.name} onChange={e=>setProjectForm({...projectForm,name:e.target.value})} placeholder="Project name" required/>
+     <input value={projectForm.description} onChange={e=>setProjectForm({...projectForm,description:e.target.value})} placeholder="Description (optional)"/>
+     <button className="primary" disabled={loading}>Create project</button>
+    </form>}
    </section>
 
    <section className="grid workbench">
@@ -100,6 +115,7 @@ export function App(){
      <div className="panel-title"><h2>Environments</h2><span>{isOwner?'Owner managed':'Read access'}</span></div>
      {environments.map(env=><button className={`env ${selected===env.id?'selected':''}`} key={env.id} onClick={()=>setSelected(env.id)}><span className="dot"/><div><b>{env.name}</b><small>{env.hostname||env.sshHost||env.runnerUrl}</small><em>{env.connectionType} · {env.os} · {env.capabilities.join(' · ')||'basic'}</em></div></button>)}
      {isOwner&&<form className="stack" onSubmit={addEnvironment}>
+      <select value={form.projectId} onChange={e=>update({projectId:e.target.value})} required><option value="">Select project</option>{projects.map(project=><option value={project.id} key={project.id}>{project.name}</option>)}</select>
       <input value={form.name} onChange={e=>update({name:e.target.value})} placeholder="Environment name"/>
       <select value={form.connectionType} onChange={e=>update({connectionType:e.target.value as 'runner'|'ssh'})}><option value="runner">Xentra Runner</option><option value="ssh">Ubuntu / Linux SSH</option></select>
       {form.connectionType==='runner'?<input value={form.runnerUrl??''} onChange={e=>update({runnerUrl:e.target.value})} placeholder="Runner URL"/>:<><input value={form.sshHost??''} onChange={e=>update({sshHost:e.target.value})} placeholder="Host / IP"/><input value={form.sshUser??''} onChange={e=>update({sshUser:e.target.value})} placeholder="SSH username"/><input value={form.sshHostKeyFingerprint??''} onChange={e=>update({sshHostKeyFingerprint:e.target.value})} placeholder="Host key fingerprint (SHA256:...)"/><textarea value={form.sshPrivateKey??''} onChange={e=>update({sshPrivateKey:e.target.value})} placeholder="SSH private key"/><input type="password" value={form.sshPassphrase??''} onChange={e=>update({sshPassphrase:e.target.value})} placeholder="Key passphrase (optional)"/></>}

@@ -1,7 +1,8 @@
 export type Principal={userId:string;email:string;organizationId:string;organizationName:string;role:'owner'|'member'};
 export type AuthSession={token:string;expiresAt:string;principal:Principal};
 export type User={id:string;email:string;createdAt:string};
-export type Environment={id:string;name:string;type:string;connectionType:string;runnerUrl?:string;sshHost?:string;sshPort?:number;sshUser?:string;os:string;hostname:string;capabilities:string[]};
+export type Project={id:string;name:string;description?:string;createdAt:string};
+export type Environment={id:string;projectId:string;name:string;type:string;connectionType:string;runnerUrl?:string;sshHost?:string;sshPort?:number;sshUser?:string;os:string;hostname:string;capabilities:string[]};
 export type Evidence={source:string;output:string;success:boolean};
 export type TimelineEvent={source:string;kind:string;summary:string;url?:string;occurredAt:string};
 export type InvestigationResult={summary:string;confidence:string;probableRootCause:string;recommendedAction:string;evidence:Evidence[]};
@@ -10,7 +11,7 @@ export type VerificationResult={healthy:boolean;summary:string;evidence:Evidence
 export type ActionRequest={id:string;incidentId?:string;environmentId:string;action:string;target:string;reason:string;status:string;approvedBy?:string;result?:string;verification:VerificationResult;createdAt:string;executedAt?:string};
 export type AuditEvent={id:string;environmentId:string;actor:string;eventType:string;detail:string;success:boolean;createdAt:string};
 export type RepositoryIntegration={id:string;environmentId:string;provider:string;owner:string;repo:string};
-export type CreateEnvironmentInput={name:string;type:string;connectionType:'runner'|'ssh';runnerUrl?:string;sshHost?:string;sshPort?:number;sshUser?:string;sshHostKeyFingerprint?:string;sshPrivateKey?:string;sshPassphrase?:string};
+export type CreateEnvironmentInput={projectId:string;name:string;type:string;connectionType:'runner'|'ssh';runnerUrl?:string;sshHost?:string;sshPort?:number;sshUser?:string;sshHostKeyFingerprint?:string;sshPrivateKey?:string;sshPassphrase?:string};
 
 const API_URL=import.meta.env.VITE_XENTRA_API_URL??'http://localhost:8080';
 const TOKEN_KEY='xentra_session';
@@ -43,6 +44,8 @@ export const api={
  logout:()=>request<void>('/api/auth/logout',{method:'POST'}),
  me:()=>request<Principal>('/api/auth/me'),
  createMember:(email:string,password:string)=>request<User>('/api/auth/members',{method:'POST',body:JSON.stringify({email,password})}),
+ listProjects:()=>request<Project[]>('/api/projects'),
+ createProject:(name:string,description:string)=>request<Project>('/api/projects',{method:'POST',body:JSON.stringify({name,description})}),
  listEnvironments:()=>request<Environment[]>('/api/environments'),
  createEnvironment:(input:CreateEnvironmentInput)=>request<Environment>('/api/environments',{method:'POST',body:JSON.stringify(input)}),
  investigate:(environmentId:string,question:string)=>request<InvestigationResult>('/api/investigations',{method:'POST',body:JSON.stringify({environmentId,question})}),
