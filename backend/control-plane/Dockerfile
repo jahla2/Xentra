@@ -7,5 +7,5 @@ RUN go mod tidy && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/xentra-control /xentra-control
 USER nonroot:nonroot
-EXPOSE 8080
+EXPOSE 8080 8443
 ENTRYPOINT ["/xentra-control"]
