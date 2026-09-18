@@ -65,20 +65,26 @@ func (c *SSHClient) Collect(ctx context.Context, env domain.Environment) ([]doma
 	}
 	evidence := make([]domain.Evidence, 0, len(requests))
 	for _, request := range requests {
+		startedAt := time.Now().UTC()
 		command, commandErr := sshReadToolCommand(request)
 		if commandErr != nil {
-			evidence = append(evidence, domain.Evidence{Source: request.Tool, Success: false, Output: commandErr.Error()})
+			evidence = append(evidence, domain.Evidence{
+				Source: request.Tool, Success: false, Output: commandErr.Error(),
+				OccurredAt: startedAt, DurationMS: time.Since(startedAt).Milliseconds(),
+			})
 			continue
 		}
 		output, runErr := runSSH(client, command)
 		evidence = append(evidence, domain.Evidence{
 			Source: toolEvidenceSource(request), Success: runErr == nil, Output: outputOrError(output, runErr),
+			OccurredAt: startedAt, DurationMS: time.Since(startedAt).Milliseconds(),
 		})
 	}
 	return evidence, nil
 }
 
 func (c *SSHClient) ExecuteReadTool(ctx context.Context, env domain.Environment, request domain.ToolRequest) (domain.Evidence, error) {
+	startedAt := time.Now().UTC()
 	command, err := sshReadToolCommand(request)
 	if err != nil {
 		return domain.Evidence{}, err
@@ -91,6 +97,7 @@ func (c *SSHClient) ExecuteReadTool(ctx context.Context, env domain.Environment,
 	output, runErr := runSSH(client, command)
 	return domain.Evidence{
 		Source: toolEvidenceSource(request), Success: runErr == nil, Output: outputOrError(output, runErr),
+		OccurredAt: startedAt, DurationMS: time.Since(startedAt).Milliseconds(),
 	}, nil
 }
 
