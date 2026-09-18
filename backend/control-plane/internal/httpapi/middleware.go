@@ -25,6 +25,7 @@ type runtimeHTTPConfig struct {
 	apiLimit       int
 	webhookLimit   int
 	metricsToken   string
+	trustProxyHeaders bool
 }
 
 func runtimeConfigFromEnv() runtimeHTTPConfig {
@@ -38,6 +39,7 @@ func runtimeConfigFromEnv() runtimeHTTPConfig {
 		apiLimit:       envInt("XENTRA_RATE_LIMIT_API_PER_MINUTE", 600),
 		webhookLimit:   envInt("XENTRA_RATE_LIMIT_WEBHOOK_PER_MINUTE", 300),
 		metricsToken:   strings.TrimSpace(os.Getenv("XENTRA_METRICS_TOKEN")),
+		trustProxyHeaders: envBool("XENTRA_TRUST_PROXY_HEADERS", false),
 	}
 }
 
@@ -46,9 +48,10 @@ func withProductionMiddleware(next http.Handler, metrics *httpMetrics, cfg runti
 	authLimiter := newFixedWindowLimiter(cfg.authLimit, time.Minute)
 	webhookLimiter := newFixedWindowLimiter(cfg.webhookLimit, time.Minute)
 
-	handler := withRequestLogging(next, metrics)
+	handler := withRequestLogging(next, metrics, cfg.trustProxyHeaders)
+	handler = withSecurityHeaders(handler)
 	handler = withRequestLimits(handler)
-	handler = withRateLimits(handler, apiLimiter, authLimiter, webhookLimiter)
+	handler = withRateLimits(handler, apiLimiter, authLimiter, webhookLimiter, cfg.trustProxyHeaders)
 	handler = withConfiguredCORS(handler, cfg.allowedOrigins)
 	return handler
 }
@@ -75,6 +78,17 @@ func withConfiguredCORS(next http.Handler, allowed map[string]struct{}) http.Han
 	})
 }
 
+func withSecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+		next.ServeHTTP(w, r)
+	})
+}
+
 func withRequestLimits(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Body != nil {
@@ -87,6 +101,7 @@ func withRequestLimits(next http.Handler) http.Handler {
 func withRateLimits(
 	next http.Handler,
 	api, auth, webhook *fixedWindowLimiter,
+	trustProxyHeaders bool,
 ) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/health" || r.URL.Path == "/internal/metrics" {
@@ -102,7 +117,7 @@ func withRateLimits(
 		case strings.HasPrefix(r.URL.Path, "/api/webhooks/"):
 			limiter, scope = webhook, "webhook"
 		}
-		if !limiter.Allow(clientIP(r) + "|" + scope) {
+		if !limiter.Allow(clientIP(r, trustProxyHeaders) + "|" + scope) {
 			w.Header().Set("Retry-After", "60")
 			writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "rate limit exceeded"})
 			return
@@ -220,7 +235,7 @@ func (r *responseRecorder) Write(data []byte) (int, error) {
 	return r.ResponseWriter.Write(data)
 }
 
-func withRequestLogging(next http.Handler, metrics *httpMetrics) http.Handler {
+func withRequestLogging(next http.Handler, metrics *httpMetrics, trustProxyHeaders bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestID := strings.TrimSpace(r.Header.Get("X-Request-ID"))
 		if requestID == "" {
@@ -251,7 +266,7 @@ func withRequestLogging(next http.Handler, metrics *httpMetrics) http.Handler {
 			"path":        r.URL.Path,
 			"status":      recorder.status,
 			"duration_ms": duration.Milliseconds(),
-			"remote_ip":   clientIP(r),
+			"remote_ip":   clientIP(r, trustProxyHeaders),
 		}
 		if traceparent := strings.TrimSpace(r.Header.Get("traceparent")); traceparent != "" {
 			event["traceparent"] = traceparent
@@ -262,10 +277,12 @@ func withRequestLogging(next http.Handler, metrics *httpMetrics) http.Handler {
 	})
 }
 
-func clientIP(r *http.Request) string {
-	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwarded != "" {
-		if first := strings.TrimSpace(strings.Split(forwarded, ",")[0]); first != "" {
-			return first
+func clientIP(r *http.Request, trustProxyHeaders bool) string {
+	if trustProxyHeaders {
+		if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwarded != "" {
+			if first := strings.TrimSpace(strings.Split(forwarded, ",")[0]); first != "" {
+				return first
+			}
 		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -315,4 +332,19 @@ func stringSet(values []string) map[string]struct{} {
 		result[value] = struct{}{}
 	}
 	return result
+}
+
+func envBool(name string, fallback bool) bool {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
+	if value == "" {
+		return fallback
+	}
+	switch value {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }
