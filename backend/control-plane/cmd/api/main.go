@@ -20,6 +20,7 @@ import (
 
 type repositoriesSet struct {
 	auth         application.AuthRepository
+	projects     application.ProjectRepository
 	environments application.EnvironmentRepository
 	credentials  application.CredentialRepository
 	integrations application.RepositoryIntegrationRepository
@@ -54,7 +55,8 @@ func main() {
 	aiClient := clients.NewAIHTTPClient(envOrDefault("XENTRA_AI_URL", "http://localhost:8000"))
 	githubClient := clients.NewGitHubClient(credentialService)
 
-	environmentService := application.NewEnvironmentService(stores.environments, connections, credentialService)
+	projectService := application.NewProjectService(stores.projects)
+	environmentService := application.NewEnvironmentService(stores.environments, stores.projects, connections, credentialService)
 	investigationService := application.NewInvestigationService(stores.environments, connections, aiClient)
 	integrationService := application.NewIntegrationService(stores.integrations, credentialService, stores.environments)
 	incidentService := application.NewIncidentService(stores.incidents, stores.integrations, investigationService, githubClient)
@@ -64,7 +66,7 @@ func main() {
 		environmentService,
 		investigationService,
 		httpapi.Services{
-			Auth: authService, Integrations: integrationService,
+			Auth: authService, Projects: projectService, Integrations: integrationService,
 			Incidents: incidentService, Actions: actionService,
 		},
 	)
@@ -80,6 +82,7 @@ func repositories(ctx context.Context) repositoriesSet {
 		log.Print("XENTRA_DATABASE_URL not set; using in-memory repositories")
 		return repositoriesSet{
 			auth:         application.NewMemoryAuthRepository(),
+			projects:     application.NewMemoryProjectRepository(),
 			environments: application.NewMemoryEnvironmentRepository(),
 			credentials:  application.NewMemoryCredentialRepository(),
 			integrations: application.NewMemoryIntegrationRepository(),
@@ -102,6 +105,7 @@ func repositories(ctx context.Context) repositoriesSet {
 
 	return repositoriesSet{
 		auth:         persistence.NewPostgresAuthRepository(db),
+		projects:     persistence.NewPostgresProjectRepository(db),
 		environments: persistence.NewPostgresEnvironmentRepository(db),
 		credentials:  persistence.NewPostgresCredentialRepository(db),
 		integrations: persistence.NewPostgresIntegrationRepository(db),

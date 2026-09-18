@@ -3,6 +3,7 @@ package domain
 type Environment struct {
 	ID                    string   `json:"id"`
 	OrganizationID        string   `json:"-"`
+	ProjectID             string   `json:"projectId"`
 	Name                  string   `json:"name"`
 	Type                  string   `json:"type"`
 	ConnectionType        string   `json:"connectionType"`

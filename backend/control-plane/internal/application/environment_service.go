@@ -24,6 +24,7 @@ type SSHCredentialWriter interface {
 }
 
 type CreateEnvironmentInput struct {
+	ProjectID             string `json:"projectId"`
 	Name                  string `json:"name"`
 	Type                  string `json:"type"`
 	ConnectionType        string `json:"connectionType"`
@@ -38,21 +39,32 @@ type CreateEnvironmentInput struct {
 
 type EnvironmentService struct {
 	repo        EnvironmentRepository
+	projects    ProjectRepository
 	discovery   DiscoveryClient
 	credentials SSHCredentialWriter
 }
 
-func NewEnvironmentService(repo EnvironmentRepository, discovery DiscoveryClient, credentials SSHCredentialWriter) *EnvironmentService {
-	return &EnvironmentService{repo: repo, discovery: discovery, credentials: credentials}
+func NewEnvironmentService(repo EnvironmentRepository, projects ProjectRepository, discovery DiscoveryClient, credentials SSHCredentialWriter) *EnvironmentService {
+	return &EnvironmentService{repo: repo, projects: projects, discovery: discovery, credentials: credentials}
 }
 
 func (s *EnvironmentService) Create(ctx context.Context, organizationID string, input CreateEnvironmentInput) (domain.Environment, error) {
 	if organizationID == "" {
 		return domain.Environment{}, errors.New("organization is required")
 	}
+	if input.ProjectID == "" {
+		return domain.Environment{}, errors.New("projectId is required")
+	}
 	if input.Name == "" {
 		return domain.Environment{}, errors.New("name is required")
 	}
+	if s.projects == nil {
+		return domain.Environment{}, errors.New("project repository is unavailable")
+	}
+	if _, err := s.projects.Get(ctx, organizationID, input.ProjectID); err != nil {
+		return domain.Environment{}, err
+	}
+
 	id, err := newResourceID("env")
 	if err != nil {
 		return domain.Environment{}, fmt.Errorf("create environment id: %w", err)
@@ -62,7 +74,7 @@ func (s *EnvironmentService) Create(ctx context.Context, organizationID string, 
 		connectionType = "runner"
 	}
 	env := domain.Environment{
-		ID: id, OrganizationID: organizationID, Name: input.Name, Type: input.Type,
+		ID: id, OrganizationID: organizationID, ProjectID: input.ProjectID, Name: input.Name, Type: input.Type,
 		ConnectionType: connectionType, RunnerURL: input.RunnerURL, SSHHost: input.SSHHost,
 		SSHPort: input.SSHPort, SSHUser: input.SSHUser, SSHHostKeyFingerprint: input.SSHHostKeyFingerprint,
 	}

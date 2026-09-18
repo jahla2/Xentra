@@ -118,14 +118,21 @@ ORG_ID=$(printf '%s' "$OWNER_SESSION" | jq -r '.principal.organizationId')
 test -n "$OWNER_TOKEN"
 test -n "$ORG_ID"
 
+echo "Creating project"
+PROJECT=$(request POST /api/projects "$OWNER_TOKEN" '{"name":"Core Platform","description":"Integration project"}')
+PROJECT_ID=$(printf '%s' "$PROJECT" | jq -r '.id')
+test -n "$PROJECT_ID"
+PROJECTS=$(request GET /api/projects "$OWNER_TOKEN" "")
+test "$(printf '%s' "$PROJECTS" | jq 'length')" -eq 1
+
 echo "Connecting runner environment"
-RUNNER_PAYLOAD=$(jq -n --arg url "http://127.0.0.1:8090" '{name:"CI Runner",type:"production",connectionType:"runner",runnerUrl:$url}')
+RUNNER_PAYLOAD=$(jq -n --arg project "$PROJECT_ID" --arg url "http://127.0.0.1:8090" '{projectId:$project,name:"CI Runner",type:"production",connectionType:"runner",runnerUrl:$url}')
 RUNNER_ENV=$(request POST /api/environments "$OWNER_TOKEN" "$RUNNER_PAYLOAD")
 RUNNER_ENV_ID=$(printf '%s' "$RUNNER_ENV" | jq -r '.id')
 test -n "$RUNNER_ENV_ID"
 
 echo "Connecting real SSH environment with host-key pinning"
-SSH_PAYLOAD=$(jq -n --arg fp "$SSH_FINGERPRINT" --rawfile key "$TMP/id_ed25519" '{name:"CI SSH",type:"staging",connectionType:"ssh",sshHost:"127.0.0.1",sshPort:2222,sshUser:"xentra",sshHostKeyFingerprint:$fp,sshPrivateKey:$key}')
+SSH_PAYLOAD=$(jq -n --arg project "$PROJECT_ID" --arg fp "$SSH_FINGERPRINT" --rawfile key "$TMP/id_ed25519" '{projectId:$project,name:"CI SSH",type:"staging",connectionType:"ssh",sshHost:"127.0.0.1",sshPort:2222,sshUser:"xentra",sshHostKeyFingerprint:$fp,sshPrivateKey:$key}')
 SSH_ENV=$(request POST /api/environments "$OWNER_TOKEN" "$SSH_PAYLOAD")
 SSH_ENV_ID=$(printf '%s' "$SSH_ENV" | jq -r '.id')
 test -n "$SSH_ENV_ID"
@@ -134,7 +141,7 @@ ENVIRONMENTS=$(request GET /api/environments "$OWNER_TOKEN" "")
 test "$(printf '%s' "$ENVIRONMENTS" | jq 'length')" -eq 2
 
 echo "Verifying bad SSH fingerprint is rejected"
-BAD_SSH_PAYLOAD=$(jq -n --rawfile key "$TMP/id_ed25519" '{name:"Bad SSH",type:"staging",connectionType:"ssh",sshHost:"127.0.0.1",sshPort:2222,sshUser:"xentra",sshHostKeyFingerprint:"SHA256:not-the-host",sshPrivateKey:$key}')
+BAD_SSH_PAYLOAD=$(jq -n --arg project "$PROJECT_ID" --rawfile key "$TMP/id_ed25519" '{projectId:$project,name:"Bad SSH",type:"staging",connectionType:"ssh",sshHost:"127.0.0.1",sshPort:2222,sshUser:"xentra",sshHostKeyFingerprint:"SHA256:not-the-host",sshPrivateKey:$key}')
 BAD_STATUS=$(status_request POST /api/environments "$OWNER_TOKEN" "$BAD_SSH_PAYLOAD")
 test "$BAD_STATUS" -ne 201
 
@@ -169,6 +176,8 @@ MEMBER_PAYLOAD='{"email":"member@example.com","password":"another-secure-passwor
 request POST /api/auth/members "$OWNER_TOKEN" "$MEMBER_PAYLOAD" >/dev/null
 MEMBER_SESSION=$(request POST /api/auth/login "" '{"email":"member@example.com","password":"another-secure-password"}')
 MEMBER_TOKEN=$(printf '%s' "$MEMBER_SESSION" | jq -r '.token')
+MEMBER_PROJECTS=$(request GET /api/projects "$MEMBER_TOKEN" "")
+test "$(printf '%s' "$MEMBER_PROJECTS" | jq 'length')" -eq 1
 MEMBER_ENVS=$(request GET /api/environments "$MEMBER_TOKEN" "")
 test "$(printf '%s' "$MEMBER_ENVS" | jq 'length')" -eq 2
 
@@ -178,6 +187,8 @@ test "$MEMBER_CREATE_STATUS" -eq 403
 echo "Checking cross-organization isolation"
 OTHER_SESSION=$(request POST /api/auth/register "" '{"email":"other@example.com","password":"third-secure-password","organizationName":"Other Org"}')
 OTHER_TOKEN=$(printf '%s' "$OTHER_SESSION" | jq -r '.token')
+OTHER_PROJECTS=$(request GET /api/projects "$OTHER_TOKEN" "")
+test "$(printf '%s' "$OTHER_PROJECTS" | jq 'length')" -eq 0
 OTHER_ENVS=$(request GET /api/environments "$OTHER_TOKEN" "")
 test "$(printf '%s' "$OTHER_ENVS" | jq 'length')" -eq 0
 CROSS_STATUS=$(status_request POST /api/investigations "$OTHER_TOKEN" "$INVESTIGATION_PAYLOAD")
@@ -189,6 +200,8 @@ wait "$CONTROL_PID" 2>/dev/null || true
 CONTROL_PID=""
 start_control
 
+PERSISTED_PROJECTS=$(request GET /api/projects "$OWNER_TOKEN" "")
+test "$(printf '%s' "$PERSISTED_PROJECTS" | jq 'length')" -eq 1
 PERSISTED=$(request GET /api/environments "$OWNER_TOKEN" "")
 test "$(printf '%s' "$PERSISTED" | jq 'length')" -eq 2
 
