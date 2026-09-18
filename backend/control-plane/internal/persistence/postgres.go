@@ -28,7 +28,7 @@ func (r *PostgresEnvironmentRepository) Save(ctx context.Context, env domain.Env
 	_, err = r.db.ExecContext(ctx, query,
 		env.ID, env.OrganizationID, env.ProjectID, env.Name, env.Type, env.ConnectionType, nullable(env.RunnerURL),
 		nullable(env.SSHHost), env.SSHPort, nullable(env.SSHUser), nullable(env.SSHHostKeyFingerprint),
-		nullable(env.CredentialID), nullable(env.HealthURL), env.OS, env.Hostname, env.CPU, env.Memory, env.Disk, containers, capabilities,
+		nullable(env.CredentialID), env.HealthURL, env.OS, env.Hostname, env.CPU, env.Memory, env.Disk, containers, capabilities,
 	)
 	return err
 }
