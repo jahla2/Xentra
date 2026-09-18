@@ -17,13 +17,67 @@ type DiscoveryService struct { exec Executor }
 func NewDiscoveryService(exec Executor) *DiscoveryService { return &DiscoveryService{exec: exec} }
 func (s *DiscoveryService) Discover(ctx context.Context) domain.Discovery {
 	host, _ := s.exec.Run(ctx, "hostname")
+	osName, osErr := s.exec.Run(ctx, "uname", "-s")
+	if osErr != nil || strings.TrimSpace(osName) == "" {
+		osName = runtime.GOOS
+	}
+
+	cpu, _ := s.exec.Run(ctx, "nproc")
+	memory, _ := s.exec.Run(ctx, "free", "-m")
+	disk, _ := s.exec.Run(ctx, "df", "-h", "/")
+
 	caps := []string{}
-	if _, err := s.exec.Run(ctx, "docker", "--version"); err == nil { caps = append(caps, "docker") }
+	containers := []string{}
+	if _, err := s.exec.Run(ctx, "docker", "--version"); err == nil {
+		caps = append(caps, "docker")
+		if output, listErr := s.exec.Run(ctx, "docker", "ps", "--format", "{{.Names}}\\t{{.Status}}"); listErr == nil {
+			containers = discoveryLines(output, 100)
+		}
+	}
 	if _, err := s.exec.Run(ctx, "systemctl", "--version"); err == nil { caps = append(caps, "systemd") }
+	if _, err := s.exec.Run(ctx, "nginx", "-v"); err == nil { caps = append(caps, "nginx") }
 	if _, err := s.exec.Run(ctx, "git", "--version"); err == nil { caps = append(caps, "git") }
 	if _, err := s.exec.Run(ctx, "curl", "--version"); err == nil { caps = append(caps, "http") }
 	if _, err := s.exec.Run(ctx, "getent", "--version"); err == nil { caps = append(caps, "dns") }
-	return domain.Discovery{OS: runtime.GOOS, Hostname: strings.TrimSpace(host), Capabilities: caps}
+
+	cpuSummary := strings.TrimSpace(cpu)
+	if cpuSummary != "" {
+		cpuSummary += " cores"
+	}
+	return domain.Discovery{
+		OS: strings.TrimSpace(osName),
+		Hostname: strings.TrimSpace(host),
+		CPU: cpuSummary,
+		Memory: boundedDiscoveryOutput(memory),
+		Disk: boundedDiscoveryOutput(disk),
+		Containers: containers,
+		Capabilities: caps,
+	}
+}
+
+func boundedDiscoveryOutput(value string) string {
+	value = strings.TrimSpace(value)
+	const limit = 2048
+	if len(value) > limit {
+		return value[:limit] + "…"
+	}
+	return value
+}
+
+func discoveryLines(value string, limit int) []string {
+	lines := strings.Split(strings.TrimSpace(value), "\n")
+	result := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		result = append(result, line)
+		if len(result) >= limit {
+			break
+		}
+	}
+	return result
 }
 
 type ToolService struct { exec Executor }
