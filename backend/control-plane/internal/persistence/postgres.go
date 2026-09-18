@@ -43,7 +43,7 @@ func (r *PostgresEnvironmentRepository) Get(ctx context.Context, organizationID,
 }
 
 func (r *PostgresEnvironmentRepository) List(ctx context.Context, organizationID string) ([]domain.Environment, error) {
-	query := "SELECT id,organization_id,COALESCE(project_id,''),name,environment_type,connection_type,COALESCE(runner_url,''),COALESCE(ssh_host,''),ssh_port,COALESCE(ssh_user,''),COALESCE(ssh_host_key_fingerprint,''),COALESCE(credential_id,''),os,hostname,cpu,memory,disk,containers,capabilities FROM environments WHERE organization_id=$1 ORDER BY name"
+	query := "SELECT id,organization_id,COALESCE(project_id,''),name,environment_type,connection_type,COALESCE(runner_url,''),COALESCE(ssh_host,''),ssh_port,COALESCE(ssh_user,''),COALESCE(ssh_host_key_fingerprint,''),COALESCE(credential_id,''),COALESCE(health_url,''),os,hostname,cpu,memory,disk,containers,capabilities FROM environments WHERE organization_id=$1 ORDER BY name"
 	rows, err := r.db.QueryContext(ctx, query, organizationID)
 	if err != nil {
 		return nil, err
