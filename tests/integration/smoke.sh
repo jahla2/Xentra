@@ -262,6 +262,14 @@ for _ in $(seq 1 90); do
   sleep 1
 done
 test -n "$OUTBOUND_HOST"
+OUTBOUND_CPU=$(printf '%s' "$ENVIRONMENTS" | jq -r --arg id "$OUTBOUND_ENV_ID" '.[] | select(.id==$id) | .cpu')
+OUTBOUND_MEMORY=$(printf '%s' "$ENVIRONMENTS" | jq -r --arg id "$OUTBOUND_ENV_ID" '.[] | select(.id==$id) | .memory')
+OUTBOUND_DISK=$(printf '%s' "$ENVIRONMENTS" | jq -r --arg id "$OUTBOUND_ENV_ID" '.[] | select(.id==$id) | .disk')
+OUTBOUND_CONTAINERS=$(printf '%s' "$ENVIRONMENTS" | jq --arg id "$OUTBOUND_ENV_ID" '[.[] | select(.id==$id) | .containers[]] | length')
+test -n "$OUTBOUND_CPU"
+test -n "$OUTBOUND_MEMORY"
+test -n "$OUTBOUND_DISK"
+test "$OUTBOUND_CONTAINERS" -ge 1
 
 echo "Connecting legacy runner environment"
 RUNNER_PAYLOAD=$(jq -n --arg project "$PROJECT_ID" --arg url "http://127.0.0.1:8090" '{projectId:$project,name:"CI Runner",type:"production",connectionType:"runner",runnerUrl:$url}')
@@ -342,6 +350,8 @@ PERSISTED_PROJECTS=$(request GET /api/projects "$OWNER_TOKEN" "")
 test "$(printf '%s' "$PERSISTED_PROJECTS" | jq 'length')" -eq 1
 PERSISTED=$(request GET /api/environments "$OWNER_TOKEN" "")
 test "$(printf '%s' "$PERSISTED" | jq 'length')" -eq 3
+test -n "$(printf '%s' "$PERSISTED" | jq -r --arg id "$OUTBOUND_ENV_ID" '.[] | select(.id==$id) | .cpu')"
+test "$(printf '%s' "$PERSISTED" | jq --arg id "$OUTBOUND_ENV_ID" '[.[] | select(.id==$id) | .containers[]] | length')" -ge 1
 
 echo "Verifying outbound Runner reconnects after control-plane restart"
 POST_RESTART_INVESTIGATION=$(request POST /api/investigations "$OWNER_TOKEN" "$INVESTIGATION_PAYLOAD")
