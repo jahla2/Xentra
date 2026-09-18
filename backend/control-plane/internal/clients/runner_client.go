@@ -20,6 +20,7 @@ import (
 type RunnerClient struct {
 	http       *http.Client
 	requireTLS bool
+	disabled   bool
 }
 
 var runnerReadTools = map[string]bool{
@@ -33,6 +34,9 @@ func NewRunnerClient() *RunnerClient {
 }
 
 func NewRunnerClientFromEnv() (*RunnerClient, error) {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("XENTRA_LEGACY_RUNNER_ENABLED")), "false") {
+		return &RunnerClient{disabled: true}, nil
+	}
 	if envFlag("XENTRA_RUNNER_INSECURE_DEV") {
 		return NewRunnerClient(), nil
 	}
@@ -197,6 +201,9 @@ func (c *RunnerClient) executeTool(ctx context.Context, env domain.Environment, 
 }
 
 func (c *RunnerClient) endpoint(baseURL, path string) (string, error) {
+	if c.disabled {
+		return "", errors.New("legacy inbound Runner transport is disabled")
+	}
 	parsed, err := url.Parse(strings.TrimRight(baseURL, "/"))
 	if err != nil {
 		return "", fmt.Errorf("invalid runner URL: %w", err)
