@@ -50,7 +50,8 @@ func TestRateLimiterRejectsAfterLimit(t *testing.T) {
 	auth := newFixedWindowLimiter(1, time.Minute)
 	webhook := newFixedWindowLimiter(1, time.Minute)
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
-	handler := withRateLimits(next, api, auth, webhook, false)
+	runner := newFixedWindowLimiter(10, time.Minute)
+	handler := withRateLimits(next, api, auth, webhook, runner, false)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/projects", nil)
 	req.RemoteAddr = "10.0.0.9:1000"
