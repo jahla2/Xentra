@@ -117,6 +117,10 @@ func (s *EnvironmentService) Create(ctx context.Context, organizationID string, 
 	}
 	env.OS = discovered.OS
 	env.Hostname = discovered.Hostname
+	env.CPU = discovered.CPU
+	env.Memory = discovered.Memory
+	env.Disk = discovered.Disk
+	env.Containers = discovered.Containers
 	env.Capabilities = discovered.Capabilities
 
 	if err := s.repo.Save(ctx, env); err != nil {

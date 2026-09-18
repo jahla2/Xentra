@@ -5,6 +5,7 @@ import {ApprovalsPage} from './pages/ApprovalsPage';
 import {AskPage} from './pages/AskPage';
 import {AuditPage} from './pages/AuditPage';
 import {DashboardPage} from './pages/DashboardPage';
+import {EnvironmentDetailPage} from './pages/EnvironmentDetailPage';
 import {EnvironmentsPage} from './pages/EnvironmentsPage';
 import {IncidentsPage} from './pages/IncidentsPage';
 import {IntegrationsPage} from './pages/IntegrationsPage';
@@ -25,6 +26,7 @@ function RoutedApp(){
    <Route index element={<DashboardPage/>}/>
    <Route path="projects" element={<ProjectsPage/>}/>
    <Route path="environments" element={<EnvironmentsPage/>}/>
+   <Route path="environments/:environmentId" element={<EnvironmentDetailPage/>}/>
    <Route path="incidents" element={<IncidentsPage/>}/>
    <Route path="ask" element={<AskPage/>}/>
    <Route path="integrations" element={<IntegrationsPage/>}/>

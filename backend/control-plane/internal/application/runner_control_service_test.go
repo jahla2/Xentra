@@ -99,7 +99,9 @@ func TestOutboundRunnerEnrollmentAndTaskLifecycle(t *testing.T) {
 		var found bool
 		var pollErr error
 		task, found, pollErr = service.Poll(ctx, enrollment.RunnerID, enrollment.RunnerToken, domain.Discovery{
-			OS: "linux", Hostname: "prod-01", Capabilities: []string{"docker", "systemd"},
+			OS: "linux", Hostname: "prod-01", CPU: "8 cores",
+			Memory: "Mem: 16000 8000 4000", Disk: "/dev/sda1 100G 40G 60G 40% /",
+			Containers: []string{"api\tUp 2 minutes"}, Capabilities: []string{"docker", "systemd"},
 		})
 		if pollErr != nil {
 			t.Fatal(pollErr)
@@ -142,7 +144,7 @@ func TestOutboundRunnerEnrollmentAndTaskLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Hostname != "prod-01" || updated.OS != "linux" || len(updated.Capabilities) != 2 {
+	if updated.Hostname != "prod-01" || updated.OS != "linux" || updated.CPU != "8 cores" || updated.Memory == "" || updated.Disk == "" || len(updated.Containers) != 1 || len(updated.Capabilities) != 2 {
 		t.Fatalf("Runner discovery was not persisted: %#v", updated)
 	}
 }
