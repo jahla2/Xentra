@@ -49,8 +49,8 @@ func (c *SSMClient) Discover(ctx context.Context, env domain.Environment) (domai
 		return domain.Discovery{}, err
 	}
 	sections := parseSSMSections(output)
-	caps := discoveryLines(sections["CAPABILITIES"], 20)
-	containers := discoveryLines(sections["CONTAINERS"], 100)
+	caps := remoteDiscoveryLines(sections["CAPABILITIES"], 20)
+	containers := remoteDiscoveryLines(sections["CONTAINERS"], 100)
 	cpu := strings.TrimSpace(sections["CPU"])
 	if cpu != "" {
 		cpu += " cores"
