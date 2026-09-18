@@ -1,44 +1,6 @@
 package clients
-
-import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"strings"
-	"time"
-
-	"github.com/jahla2/Xentra/backend/control-plane/internal/domain"
-)
-
-type RunnerClient struct{ http *http.Client }
-func NewRunnerClient() *RunnerClient { return &RunnerClient{http: &http.Client{Timeout: 8 * time.Second}} }
-func (c *RunnerClient) Discover(ctx context.Context, runnerURL string) (domain.Discovery, error) {
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(runnerURL, "/")+"/v1/discovery", nil)
-	res, err := c.http.Do(req)
-	if err != nil { return domain.Discovery{}, err }
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK { return domain.Discovery{}, fmt.Errorf("runner discovery status %d", res.StatusCode) }
-	var result domain.Discovery
-	if err := json.NewDecoder(res.Body).Decode(&result); err != nil { return domain.Discovery{}, err }
-	return result, nil
-}
-func (c *RunnerClient) Collect(ctx context.Context, env domain.Environment) ([]domain.Evidence, error) {
-	tools := []string{"system.info", "system.disk", "docker.list"}
-	evidence := make([]domain.Evidence, 0, len(tools))
-	for _, tool := range tools {
-		payload, _ := json.Marshal(map[string]any{"tool": tool, "arguments": map[string]string{}})
-		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(env.RunnerURL, "/")+"/v1/tools/execute", bytes.NewReader(payload))
-		req.Header.Set("Content-Type", "application/json")
-		res, err := c.http.Do(req)
-		if err != nil { evidence = append(evidence, domain.Evidence{Source: tool, Success: false, Output: err.Error()}); continue }
-		var result struct { Success bool `json:"success"`; Output string `json:"output"`; Error string `json:"error"` }
-		_ = json.NewDecoder(res.Body).Decode(&result)
-		res.Body.Close()
-		output := result.Output
-		if output == "" { output = result.Error }
-		evidence = append(evidence, domain.Evidence{Source: tool, Success: result.Success, Output: output})
-	}
-	return evidence, nil
-}
+import("bytes";"context";"encoding/json";"fmt";"net/http";"strings";"time";"github.com/jahla2/Xentra/backend/control-plane/internal/domain")
+type RunnerClient struct{http *http.Client}
+func NewRunnerClient()*RunnerClient{return &RunnerClient{http:&http.Client{Timeout:8*time.Second}}}
+func(c *RunnerClient)Discover(ctx context.Context,env domain.Environment)(domain.Discovery,error){req,err:=http.NewRequestWithContext(ctx,http.MethodGet,strings.TrimRight(env.RunnerURL,"/")+"/v1/discovery",nil);if err!=nil{return domain.Discovery{},err};res,err:=c.http.Do(req);if err!=nil{return domain.Discovery{},err};defer res.Body.Close();if res.StatusCode!=http.StatusOK{return domain.Discovery{},fmt.Errorf("runner discovery status %d",res.StatusCode)};var result domain.Discovery;if err:=json.NewDecoder(res.Body).Decode(&result);err!=nil{return domain.Discovery{},err};return result,nil}
+func(c *RunnerClient)Collect(ctx context.Context,env domain.Environment)([]domain.Evidence,error){tools:=[]string{"system.info","system.disk","docker.list"};evidence:=make([]domain.Evidence,0,len(tools));for _,tool:=range tools{payload,_:=json.Marshal(map[string]any{"tool":tool,"arguments":map[string]string{}});req,_:=http.NewRequestWithContext(ctx,http.MethodPost,strings.TrimRight(env.RunnerURL,"/")+"/v1/tools/execute",bytes.NewReader(payload));req.Header.Set("Content-Type","application/json");res,err:=c.http.Do(req);if err!=nil{evidence=append(evidence,domain.Evidence{Source:tool,Success:false,Output:err.Error()});continue};var result struct{Success bool `json:"success"`;Output string `json:"output"`;Error string `json:"error"`};_ = json.NewDecoder(res.Body).Decode(&result);res.Body.Close();output:=result.Output;if output==""{output=result.Error};evidence=append(evidence,domain.Evidence{Source:tool,Success:result.Success,Output:output})};return evidence,nil}

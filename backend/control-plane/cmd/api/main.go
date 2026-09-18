@@ -1,21 +1,13 @@
 package main
-
-import (
-	"log"
-	"net/http"
-	"os"
-
+import(
+	"context";"crypto/rand";"database/sql";"encoding/base64";"log";"net/http";"os";"time"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/jahla2/Xentra/backend/control-plane/internal/application"
 	"github.com/jahla2/Xentra/backend/control-plane/internal/clients"
 	"github.com/jahla2/Xentra/backend/control-plane/internal/httpapi"
+	"github.com/jahla2/Xentra/backend/control-plane/internal/persistence"
 )
-func main() {
-	repo := application.NewMemoryEnvironmentRepository()
-	runnerClient := clients.NewRunnerClient()
-	aiClient := clients.NewAIHTTPClient(envOrDefault("XENTRA_AI_URL", "http://localhost:8000"))
-	router := httpapi.NewRouter(application.NewEnvironmentService(repo, runnerClient), application.NewInvestigationService(repo, runnerClient, aiClient))
-	addr := envOrDefault("XENTRA_CONTROL_ADDR", ":8080")
-	log.Printf("xentra control plane listening on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, router))
-}
-func envOrDefault(name, fallback string) string { if v := os.Getenv(name); v != "" { return v }; return fallback }
+func main(){ctx,cancel:=context.WithTimeout(context.Background(),15*time.Second);defer cancel();envRepo,credentialRepo,db:=repositories(ctx);if db!=nil{defer db.Close()};key:=masterKey(db!=nil);box,err:=clients.NewAESSecretBox(key);if err!=nil{log.Fatal(err)};credentialService:=application.NewCredentialService(credentialRepo,box);runnerClient:=clients.NewRunnerClient();sshClient:=clients.NewSSHClient(credentialService);connections:=clients.NewConnectionClient(runnerClient,sshClient);aiClient:=clients.NewAIHTTPClient(envOrDefault("XENTRA_AI_URL","http://localhost:8000"));environmentService:=application.NewEnvironmentService(envRepo,connections,credentialService);investigationService:=application.NewInvestigationService(envRepo,connections,aiClient);router:=httpapi.NewRouter(environmentService,investigationService);addr:=envOrDefault("XENTRA_CONTROL_ADDR",":8080");log.Printf("xentra control plane listening on %s",addr);log.Fatal(http.ListenAndServe(addr,router))}
+func repositories(ctx context.Context)(application.EnvironmentRepository,application.CredentialRepository,*sql.DB){databaseURL:=os.Getenv("XENTRA_DATABASE_URL");if databaseURL==""{log.Print("XENTRA_DATABASE_URL not set; using in-memory repositories");return application.NewMemoryEnvironmentRepository(),application.NewMemoryCredentialRepository(),nil};db,err:=sql.Open("pgx",databaseURL);if err!=nil{log.Fatal(err)};if err:=db.PingContext(ctx);err!=nil{log.Fatal(err)};if err:=persistence.Migrate(ctx,db);err!=nil{log.Fatal(err)};return persistence.NewPostgresEnvironmentRepository(db),persistence.NewPostgresCredentialRepository(db),db}
+func masterKey(persistent bool)[]byte{encoded:=os.Getenv("XENTRA_MASTER_KEY");if encoded!=""{key,err:=base64.StdEncoding.DecodeString(encoded);if err!=nil||len(key)!=32{log.Fatal("XENTRA_MASTER_KEY must be base64 for exactly 32 bytes")};return key};if persistent{log.Fatal("XENTRA_MASTER_KEY is required when PostgreSQL persistence is enabled")};key:=make([]byte,32);if _,err:=rand.Read(key);err!=nil{log.Fatal(err)};log.Print("XENTRA_MASTER_KEY not set; generated ephemeral development key");return key}
+func envOrDefault(name,fallback string)string{if value:=os.Getenv(name);value!=""{return value};return fallback}
