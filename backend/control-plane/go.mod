@@ -3,6 +3,8 @@ module github.com/jahla2/Xentra/backend/control-plane
 go 1.23
 
 require (
+	github.com/aws/aws-sdk-go-v2/config v1.32.10
+	github.com/aws/aws-sdk-go-v2/service/ssm v1.68.1
 	github.com/jackc/pgx/v5 v5.7.6
 	go.opentelemetry.io/otel v1.38.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.38.0
