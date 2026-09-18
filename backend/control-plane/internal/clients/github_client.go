@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jahla2/Xentra/backend/control-plane/internal/domain"
+	"github.com/jahla2/Xentra/backend/control-plane/internal/observability"
 )
 
 const (
@@ -37,7 +38,7 @@ func NewGitHubClientWithBaseURL(auth GitHubAccessTokenProvider, baseURL string) 
 	return &GitHubClient{
 		auth: auth,
 		baseURL: strings.TrimRight(baseURL, "/"),
-		http: &http.Client{Timeout: 10 * time.Second},
+		http: &http.Client{Timeout: 10 * time.Second, Transport: observability.NewTracingTransport(nil)},
 	}
 }
 
