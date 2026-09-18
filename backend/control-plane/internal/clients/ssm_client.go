@@ -183,7 +183,7 @@ func (c *SSMClient) run(ctx context.Context, env domain.Environment, command str
 	result, err := client.SendCommand(runCtx, &ssm.SendCommandInput{
 		DocumentName: stringPtr("AWS-RunShellScript"),
 		InstanceIds: []string{env.AWSInstanceID},
-		Parameters: map[string][]string{"commands": {command}},
+		Parameters: map[string][]string{"commands": []string{command}},
 		TimeoutSeconds: int32Ptr(30),
 	})
 	if err != nil {
