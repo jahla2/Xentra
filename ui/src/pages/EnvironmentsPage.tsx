@@ -3,7 +3,7 @@ import {Link} from 'react-router-dom';
 import {api,CreateEnvironmentInput} from '../api';
 import {useWorkspace} from '../app/WorkspaceProvider';
 
-type ConnectionChoice='runner_outbound'|'runner'|'ssh';
+type ConnectionChoice='runner_outbound'|'runner'|'aws_ssm'|'ssh';
 
 export function EnvironmentsPage(){
  const{
@@ -13,7 +13,7 @@ export function EnvironmentsPage(){
  const[connectionChoice,setConnectionChoice]=useState<ConnectionChoice>('runner_outbound');
  const[form,setForm]=useState<CreateEnvironmentInput>({
   projectId:'',name:'Production Ubuntu',type:'production',connectionType:'runner',
-  runnerUrl:'https://runner.example.com:8090',sshPort:22,healthUrl:'',
+  runnerUrl:'https://runner.example.com:8090',sshPort:22,healthUrl:'',awsRegion:'',awsInstanceId:'',
  });
 
  useEffect(()=>{
@@ -66,6 +66,7 @@ export function EnvironmentsPage(){
     <select value={connectionChoice} onChange={e=>setConnectionChoice(e.target.value as ConnectionChoice)}>
      <option value="runner_outbound">Outbound Xentra Runner (recommended)</option>
      <option value="runner">Legacy inbound Runner</option>
+     <option value="aws_ssm">AWS Systems Manager (SSM)</option>
      <option value="ssh">Ubuntu / Linux SSH</option>
     </select>
 
@@ -77,6 +78,15 @@ export function EnvironmentsPage(){
 
     {connectionChoice==='runner'&&
      <input value={form.runnerUrl??''} onChange={e=>update({runnerUrl:e.target.value})} placeholder="https://runner.example.com:8090" required/>}
+
+    {connectionChoice==='aws_ssm'&&<>
+     <div className="finding">
+      <b>AWS-native access without opening SSH</b>
+      <p>Xentra uses the control plane's AWS IAM/default credential chain to send allowlisted commands through Systems Manager. The EC2 instance must be online in SSM and have SSM Agent configured.</p>
+     </div>
+     <input value={form.awsRegion??''} onChange={e=>update({awsRegion:e.target.value})} placeholder="AWS region, e.g. ap-southeast-2" required/>
+     <input value={form.awsInstanceId??''} onChange={e=>update({awsInstanceId:e.target.value})} placeholder="EC2 instance ID, e.g. i-0123456789abcdef0" required/>
+    </>}
 
     {connectionChoice==='ssh'&&<>
      <input value={form.sshHost??''} onChange={e=>update({sshHost:e.target.value})} placeholder="Host / IP" required/>
