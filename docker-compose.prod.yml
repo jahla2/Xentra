@@ -15,6 +15,15 @@ services:
       retries: 10
     networks: [xentra-internal]
 
+  otel-collector:
+    image: otel/opentelemetry-collector:0.161.0
+    profiles: ["observability"]
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./infra/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    networks: [xentra-internal]
+
   ai-service:
     build:
       context: ./backend/ai-service
@@ -25,6 +34,9 @@ services:
       XENTRA_LLM_MODEL: ${XENTRA_LLM_MODEL:-}
       XENTRA_EMBEDDING_MODEL: ${XENTRA_EMBEDDING_MODEL:-}
       XENTRA_EMBEDDING_DIMENSIONS: ${XENTRA_EMBEDDING_DIMENSIONS:-384}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${XENTRA_OTEL_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_TRACES_EXPORTER: ${XENTRA_OTEL_TRACES_EXPORTER:-otlp}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
       interval: 30s
@@ -62,6 +74,9 @@ services:
       XENTRA_RUNNER_CONTROL_TLS_CERT: /run/secrets/runner_control_server_cert.pem
       XENTRA_RUNNER_CONTROL_TLS_KEY: /run/secrets/runner_control_server_key.pem
       XENTRA_RUNNER_CONTROL_CLIENT_CA: /run/secrets/runner_control_client_ca.pem
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${XENTRA_OTEL_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_TRACES_EXPORTER: ${XENTRA_OTEL_TRACES_EXPORTER:-otlp}
     secrets:
       - github_app_private_key.pem
       - runner_control_server_cert.pem

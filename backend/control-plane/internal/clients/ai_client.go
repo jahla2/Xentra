@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jahla2/Xentra/backend/control-plane/internal/domain"
+	"github.com/jahla2/Xentra/backend/control-plane/internal/observability"
 )
 
 type AIHTTPClient struct {
@@ -18,7 +19,7 @@ type AIHTTPClient struct {
 }
 
 func NewAIHTTPClient(baseURL string) *AIHTTPClient {
-	return &AIHTTPClient{baseURL: strings.TrimRight(baseURL, "/"), http: &http.Client{Timeout: 20 * time.Second}}
+	return &AIHTTPClient{baseURL: strings.TrimRight(baseURL, "/"), http: &http.Client{Timeout: 20 * time.Second, Transport: observability.NewTracingTransport(nil)}}
 }
 
 func (c *AIHTTPClient) Investigate(ctx context.Context, request domain.InvestigationRequest) (domain.InvestigationResult, error) {

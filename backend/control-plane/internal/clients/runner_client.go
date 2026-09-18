@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jahla2/Xentra/backend/control-plane/internal/domain"
+	"github.com/jahla2/Xentra/backend/control-plane/internal/observability"
 )
 
 type RunnerClient struct {
@@ -30,7 +31,7 @@ var runnerReadTools = map[string]bool{
 }
 
 func NewRunnerClient() *RunnerClient {
-	return &RunnerClient{http: &http.Client{Timeout: 8 * time.Second}}
+	return &RunnerClient{http: &http.Client{Timeout: 8 * time.Second, Transport: observability.NewTracingTransport(nil)}}
 }
 
 func NewRunnerClientFromEnv() (*RunnerClient, error) {
@@ -65,7 +66,7 @@ func NewRunnerClientFromEnv() (*RunnerClient, error) {
 		MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{certificate}, RootCAs: rootCAs,
 	}}
 	return &RunnerClient{
-		http: &http.Client{Timeout: 8 * time.Second, Transport: transport}, requireTLS: true,
+		http: &http.Client{Timeout: 8 * time.Second, Transport: observability.NewTracingTransport(transport)}, requireTLS: true,
 	}, nil
 }
 

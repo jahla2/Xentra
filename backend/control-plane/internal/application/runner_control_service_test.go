@@ -4,8 +4,13 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"strings"
 	"testing"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/jahla2/Xentra/backend/control-plane/internal/domain"
 )
@@ -43,6 +48,18 @@ func TestOutboundRunnerEnrollmentAndTaskLifecycle(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
+	oldPropagator := otel.GetTextMapPropagator()
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+	defer otel.SetTextMapPropagator(oldPropagator)
+
+	traceID, _ := trace.TraceIDFromHex("00112233445566778899aabbccddeeff")
+	spanID, _ := trace.SpanIDFromHex("0011223344556677")
+	dispatchContext := trace.ContextWithSpanContext(ctx, trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID: traceID,
+		SpanID: spanID,
+		TraceFlags: trace.FlagsSampled,
+	}))
+
 	projects := NewMemoryProjectRepository()
 	if err := projects.Save(ctx, domain.Project{ID: "prj-1", OrganizationID: "org-a", Name: "Core"}); err != nil {
 		t.Fatal(err)
@@ -67,7 +84,7 @@ func TestOutboundRunnerEnrollmentAndTaskLifecycle(t *testing.T) {
 	resultCh := make(chan domain.RunnerTaskResult, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		result, dispatchErr := service.Dispatch(ctx, enrollment.Environment, domain.ToolRequest{
+		result, dispatchErr := service.Dispatch(dispatchContext, enrollment.Environment, domain.ToolRequest{
 			Tool: "system.info", Arguments: map[string]string{},
 		})
 		if dispatchErr != nil {
@@ -98,6 +115,9 @@ func TestOutboundRunnerEnrollmentAndTaskLifecycle(t *testing.T) {
 	}
 	if task.Tool != "system.info" {
 		t.Fatalf("unexpected task: %#v", task)
+	}
+	if task.TraceParent == "" || !strings.Contains(task.TraceParent, traceID.String()) {
+		t.Fatalf("queued task did not preserve traceparent: %q", task.TraceParent)
 	}
 	resultPayload := domain.RunnerTaskResult{Success: true, Output: "Linux prod-01"}
 	if err := service.Complete(ctx, enrollment.RunnerID, task.ID, enrollment.RunnerToken, resultPayload); err != nil {

@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from app.embeddings import EMBEDDING_DIMENSIONS, build_embedding_engine_from_env
@@ -10,9 +12,22 @@ from app.schemas import (
     InvestigationFinding,
     InvestigationRequest,
 )
+from app.telemetry import configure_telemetry
 
 
-app = FastAPI(title="Xentra AI Service", version="0.4.0")
+telemetry = configure_telemetry("xentra-ai-service")
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    try:
+        yield
+    finally:
+        telemetry.shutdown()
+
+
+app = FastAPI(title="Xentra AI Service", version="0.5.0", lifespan=lifespan)
+telemetry.instrument_fastapi(app)
 engine = build_engine_from_env()
 embedding_engine = build_embedding_engine_from_env()
 

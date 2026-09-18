@@ -5,8 +5,14 @@ import (
 	"log"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/jahla2/Xentra/backend/runner/internal/application"
 	"github.com/jahla2/Xentra/backend/runner/internal/domain"
+	"github.com/jahla2/Xentra/backend/runner/internal/observability"
 )
 
 type Agent struct {
@@ -46,10 +52,26 @@ func (a *Agent) Run(ctx context.Context) error {
 			continue
 		}
 
-		result := a.tools.Execute(ctx, task.Tool, task.Arguments)
-		if err := a.completeWithRetry(ctx, task.ID, result); err != nil {
+		taskContext := observability.ExtractTaskContext(ctx, task.TraceParent, task.TraceState)
+		taskContext, span := otel.Tracer("github.com/jahla2/Xentra/backend/runner/tasks").Start(
+			taskContext,
+			"runner.tool."+task.Tool,
+			trace.WithSpanKind(trace.SpanKindConsumer),
+			trace.WithAttributes(
+				attribute.String("xentra.runner.task_id", task.ID),
+				attribute.String("xentra.tool", task.Tool),
+			),
+		)
+		result := a.tools.Execute(taskContext, task.Tool, task.Arguments)
+		if !result.Success {
+			span.SetStatus(codes.Error, result.Error)
+		}
+		if err := a.completeWithRetry(taskContext, task.ID, result); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			log.Printf("outbound Runner failed to submit task %s result: %v", task.ID, err)
 		}
+		span.End()
 	}
 }
 

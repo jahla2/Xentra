@@ -16,10 +16,25 @@ import (
 	"github.com/jahla2/Xentra/backend/runner/internal/application"
 	"github.com/jahla2/Xentra/backend/runner/internal/control"
 	"github.com/jahla2/Xentra/backend/runner/internal/httpapi"
+	"github.com/jahla2/Xentra/backend/runner/internal/observability"
 	"github.com/jahla2/Xentra/backend/runner/internal/security"
 )
 
 func main() {
+	telemetryContext, cancelTelemetry := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownTelemetry, err := observability.Configure(telemetryContext, "xentra-runner")
+	cancelTelemetry()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownTelemetry(ctx); err != nil {
+			log.Printf("telemetry shutdown error: %v", err)
+		}
+	}()
+
 	executor := application.OSExecutor{}
 	discovery := application.NewDiscoveryService(executor)
 	tools := application.NewToolService(executor)

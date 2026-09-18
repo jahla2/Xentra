@@ -7,10 +7,12 @@ AI_LOG=/tmp/xentra-ai.log
 RUNNER_LOG=/tmp/xentra-runner.log
 OUTBOUND_RUNNER_LOG=/tmp/xentra-outbound-runner.log
 CONTROL_LOG=/tmp/xentra-control.log
+OTEL_LOG=/tmp/xentra-otel.jsonl
 AI_PID=""
 RUNNER_PID=""
 OUTBOUND_RUNNER_PID=""
 CONTROL_PID=""
+OTEL_PID=""
 
 cleanup() {
   status=$?
@@ -19,12 +21,14 @@ cleanup() {
   if [ -n "$RUNNER_PID" ]; then kill "$RUNNER_PID" 2>/dev/null; wait "$RUNNER_PID" 2>/dev/null; fi
   if [ -n "$OUTBOUND_RUNNER_PID" ]; then kill "$OUTBOUND_RUNNER_PID" 2>/dev/null; wait "$OUTBOUND_RUNNER_PID" 2>/dev/null; fi
   if [ -n "$AI_PID" ]; then kill "$AI_PID" 2>/dev/null; wait "$AI_PID" 2>/dev/null; fi
+  if [ -n "$OTEL_PID" ]; then kill "$OTEL_PID" 2>/dev/null; wait "$OTEL_PID" 2>/dev/null; fi
   docker rm -f xentra-ssh-fixture >/dev/null 2>&1 || true
   if [ "$status" -ne 0 ]; then
     echo "---- AI log ----"; cat "$AI_LOG" 2>/dev/null || true
     echo "---- Legacy Runner log ----"; cat "$RUNNER_LOG" 2>/dev/null || true
     echo "---- Outbound Runner log ----"; cat "$OUTBOUND_RUNNER_LOG" 2>/dev/null || true
     echo "---- Control-plane log ----"; cat "$CONTROL_LOG" 2>/dev/null || true
+    echo "---- OTEL spans ----"; cat "$OTEL_LOG" 2>/dev/null || true
   fi
   rm -rf "$TMP"
   trap - EXIT
@@ -100,12 +104,76 @@ status_request() {
 start_control() {
   (
     cd "$ROOT/backend/control-plane"
-    exec env       XENTRA_CONTROL_ADDR=127.0.0.1:8080       XENTRA_RUNNER_CONTROL_ADDR=127.0.0.1:8081       XENTRA_RUNNER_CONTROL_TLS_CERT="$TMP/runner-control.crt"       XENTRA_RUNNER_CONTROL_TLS_KEY="$TMP/runner-control.key"       XENTRA_RUNNER_CONTROL_CLIENT_CA="$TMP/runner-ca.crt"       XENTRA_AI_URL=http://127.0.0.1:8000       XENTRA_DATABASE_URL="$XENTRA_DATABASE_URL"       XENTRA_MASTER_KEY="$XENTRA_MASTER_KEY"       XENTRA_RUNNER_INSECURE_DEV=true       go run ./cmd/api
+    exec env       XENTRA_CONTROL_ADDR=127.0.0.1:8080       XENTRA_RUNNER_CONTROL_ADDR=127.0.0.1:8081       XENTRA_RUNNER_CONTROL_TLS_CERT="$TMP/runner-control.crt"       XENTRA_RUNNER_CONTROL_TLS_KEY="$TMP/runner-control.key"       XENTRA_RUNNER_CONTROL_CLIENT_CA="$TMP/runner-ca.crt"       XENTRA_AI_URL=http://127.0.0.1:8000       XENTRA_DATABASE_URL="$XENTRA_DATABASE_URL"       XENTRA_MASTER_KEY="$XENTRA_MASTER_KEY"       XENTRA_RUNNER_INSECURE_DEV=true       OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318       OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf       go run ./cmd/api
   ) >"$CONTROL_LOG" 2>&1 &
   CONTROL_PID=$!
   wait_http http://127.0.0.1:8080/health
   wait_runner_control
 }
+
+echo "Starting OTLP trace sink"
+cat >"$TMP/otel_sink.py" <<'PY'
+import json
+import sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
+    ExportTraceServiceRequest,
+    ExportTraceServiceResponse,
+)
+
+output = sys.argv[1]
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/health":
+            self.send_response(200)
+            self.end_headers()
+            return
+        self.send_response(404)
+        self.end_headers()
+
+    def do_POST(self):
+        if self.path != "/v1/traces":
+            self.send_response(404)
+            self.end_headers()
+            return
+        length = int(self.headers.get("Content-Length", "0"))
+        request = ExportTraceServiceRequest()
+        request.ParseFromString(self.rfile.read(length))
+        with open(output, "a", encoding="utf-8") as handle:
+            for resource_spans in request.resource_spans:
+                service = "unknown"
+                for item in resource_spans.resource.attributes:
+                    if item.key == "service.name":
+                        service = item.value.string_value
+                        break
+                for scope_spans in resource_spans.scope_spans:
+                    for span in scope_spans.spans:
+                        handle.write(json.dumps({
+                            "service": service,
+                            "trace_id": span.trace_id.hex(),
+                            "span_id": span.span_id.hex(),
+                            "parent_span_id": span.parent_span_id.hex(),
+                            "name": span.name,
+                        }) + "\n")
+                handle.flush()
+        response = ExportTraceServiceResponse().SerializeToString()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-protobuf")
+        self.send_header("Content-Length", str(len(response)))
+        self.end_headers()
+        self.wfile.write(response)
+
+    def log_message(self, *_):
+        pass
+
+ThreadingHTTPServer(("127.0.0.1", 4318), Handler).serve_forever()
+PY
+: >"$OTEL_LOG"
+python "$TMP/otel_sink.py" "$OTEL_LOG" >"$TMP/otel-sink.log" 2>&1 &
+OTEL_PID=$!
+wait_http http://127.0.0.1:4318/health
 
 echo "Generating Runner-control mTLS certificates"
 generate_runner_mtls
@@ -113,7 +181,7 @@ generate_runner_mtls
 echo "Starting AI service"
 (
   cd "$ROOT/backend/ai-service"
-  exec python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+  exec env OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ) >"$AI_LOG" 2>&1 &
 AI_PID=$!
 wait_http http://127.0.0.1:8000/health
@@ -177,6 +245,8 @@ echo "Starting outbound Runner agent"
     XENTRA_CONTROL_CLIENT_KEY="$TMP/runner-client.key" \
     XENTRA_CONTROL_SERVER_CA="$TMP/runner-ca.crt" \
     XENTRA_CONTROL_POLL_SECONDS=1 \
+    OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 \
+    OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf \
     go run ./cmd/runner
 ) >"$OUTBOUND_RUNNER_LOG" 2>&1 &
 OUTBOUND_RUNNER_PID=$!
@@ -277,6 +347,36 @@ echo "Verifying outbound Runner reconnects after control-plane restart"
 POST_RESTART_INVESTIGATION=$(request POST /api/investigations "$OWNER_TOKEN" "$INVESTIGATION_PAYLOAD")
 test -n "$(printf '%s' "$POST_RESTART_INVESTIGATION" | jq -r '.summary')"
 test "$(printf '%s' "$POST_RESTART_INVESTIGATION" | jq '.evidence | length')" -ge 1
+
+echo "Verifying distributed trace crosses control plane, AI service, and outbound Runner"
+TRACE_OK=""
+for _ in $(seq 1 20); do
+  if python - "$OTEL_LOG" <<'PY'
+import json
+import sys
+from collections import defaultdict
+
+by_trace = defaultdict(set)
+with open(sys.argv[1], encoding="utf-8") as handle:
+    for line in handle:
+        if not line.strip():
+            continue
+        item = json.loads(line)
+        by_trace[item["trace_id"]].add(item["service"])
+
+required = {"xentra-control-plane", "xentra-ai-service", "xentra-runner"}
+matches = [trace_id for trace_id, services in by_trace.items() if required.issubset(services)]
+if not matches:
+    raise SystemExit(1)
+print(matches[0])
+PY
+  then
+    TRACE_OK=1
+    break
+  fi
+  sleep 1
+done
+test -n "$TRACE_OK"
 
 echo "Revoking owner session"
 request POST /api/auth/logout "$OWNER_TOKEN" "" >/dev/null

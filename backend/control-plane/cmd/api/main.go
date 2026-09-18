@@ -21,6 +21,7 @@ import (
 	"github.com/jahla2/Xentra/backend/control-plane/internal/application"
 	"github.com/jahla2/Xentra/backend/control-plane/internal/clients"
 	"github.com/jahla2/Xentra/backend/control-plane/internal/httpapi"
+	"github.com/jahla2/Xentra/backend/control-plane/internal/observability"
 	"github.com/jahla2/Xentra/backend/control-plane/internal/persistence"
 	"github.com/jahla2/Xentra/backend/control-plane/internal/security"
 )
@@ -48,6 +49,11 @@ type serverFailure struct {
 func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+
+	shutdownTelemetry, err := observability.Configure(ctx, "xentra-control-plane")
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	stores := repositories(ctx)
 	if stores.db != nil {
@@ -106,12 +112,12 @@ func main() {
 	runnerRouter := httpapi.NewRunnerControlRouter(runnerControlService)
 
 	apiAddr := envOrDefault("XENTRA_CONTROL_ADDR", ":8080")
-	apiServer := newHTTPServer(apiAddr, apiRouter)
+	apiServer := newHTTPServer(apiAddr, observability.HTTPMiddleware("xentra.api", apiRouter))
 
 	runnerAddr := strings.TrimSpace(os.Getenv("XENTRA_RUNNER_CONTROL_ADDR"))
 	var runnerServer *http.Server
 	if runnerAddr != "" {
-		runnerServer = newHTTPServer(runnerAddr, runnerRouter)
+		runnerServer = newHTTPServer(runnerAddr, observability.HTTPMiddleware("xentra.runner-control", runnerRouter))
 	}
 
 	serverErr := make(chan serverFailure, 2)
@@ -147,6 +153,12 @@ func main() {
 			log.Printf("runner control shutdown error: %v", err)
 		}
 	}
+
+	telemetryContext, cancelTelemetry := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := shutdownTelemetry(telemetryContext); err != nil {
+		log.Printf("telemetry shutdown error: %v", err)
+	}
+	cancelTelemetry()
 
 	if unexpected != nil {
 		log.Fatalf("%s server failed: %v", unexpected.name, unexpected.err)

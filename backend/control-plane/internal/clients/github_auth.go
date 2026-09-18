@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/jahla2/Xentra/backend/control-plane/internal/domain"
+	"github.com/jahla2/Xentra/backend/control-plane/internal/observability"
 )
 
 type GitHubStoredTokenProvider interface {
@@ -46,7 +47,7 @@ func NewGitHubAuthProvider(stored GitHubStoredTokenProvider, appID, privateKeyPE
 		storedCredentials: stored,
 		appID:             strings.TrimSpace(appID),
 		baseURL:           strings.TrimRight(baseURL, "/"),
-		http:              &http.Client{Timeout: 10 * time.Second},
+		http:              &http.Client{Timeout: 10 * time.Second, Transport: observability.NewTracingTransport(nil)},
 		cache:             map[int64]cachedInstallationToken{},
 	}
 	if provider.baseURL == "" {
