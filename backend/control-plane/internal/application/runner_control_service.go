@@ -303,7 +303,13 @@ func (r *MemoryRunnerControlRepository) CompleteTask(_ context.Context, runnerID
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	task, ok := r.tasks[taskID]
-	if !ok || task.RunnerID != runnerID || task.Status != "claimed" {
+	if !ok || task.RunnerID != runnerID {
+		return errors.New("runner task is not claimable for completion")
+	}
+	if task.Status == "completed" {
+		return nil
+	}
+	if task.Status != "claimed" {
 		return errors.New("runner task is not claimable for completion")
 	}
 	task.Status = "completed"
