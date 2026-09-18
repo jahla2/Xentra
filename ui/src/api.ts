@@ -2,7 +2,7 @@ export type Principal={userId:string;email:string;organizationId:string;organiza
 export type AuthSession={token:string;expiresAt:string;principal:Principal};
 export type User={id:string;email:string;createdAt:string};
 export type Project={id:string;name:string;description?:string;createdAt:string};
-export type Environment={id:string;projectId:string;name:string;type:string;connectionType:string;runnerUrl?:string;sshHost?:string;sshPort?:number;sshUser?:string;healthUrl?:string;os:string;hostname:string;cpu:string;memory:string;disk:string;containers:string[];capabilities:string[]};
+export type Environment={id:string;projectId:string;name:string;type:string;connectionType:string;runnerUrl?:string;sshHost?:string;sshPort?:number;sshUser?:string;healthUrl?:string;awsRegion?:string;awsInstanceId?:string;os:string;hostname:string;cpu:string;memory:string;disk:string;containers:string[];capabilities:string[]};
 export type Evidence={source:string;output:string;success:boolean;occurredAt:string;durationMs:number};
 export type TimelineEvent={source:string;kind:string;summary:string;url?:string;occurredAt:string};
 export type InvestigationResult={summary:string;confidence:string;probableRootCause:string;recommendedAction:string;evidence:Evidence[]};
@@ -13,7 +13,7 @@ export type AuditEvent={id:string;environmentId:string;actor:string;eventType:st
 export type RepositoryIntegration={id:string;environmentId:string;provider:string;owner:string;repo:string;authMode:'github_app'|'token';installationId?:number};
 export type GitHubIntegrationSetup={integration:RepositoryIntegration;webhookPath:string;webhookSecret:string};
 export type RunnerEnrollment={environment:Environment;runnerId:string;runnerToken:string;controlPath:string};
-export type CreateEnvironmentInput={projectId:string;name:string;type:string;connectionType:'runner'|'ssh';runnerUrl?:string;sshHost?:string;sshPort?:number;sshUser?:string;sshHostKeyFingerprint?:string;sshPrivateKey?:string;sshPassphrase?:string;healthUrl?:string};
+export type CreateEnvironmentInput={projectId:string;name:string;type:string;connectionType:'runner'|'ssh'|'aws_ssm';runnerUrl?:string;sshHost?:string;sshPort?:number;sshUser?:string;sshHostKeyFingerprint?:string;sshPrivateKey?:string;sshPassphrase?:string;healthUrl?:string;awsRegion?:string;awsInstanceId?:string};
 
 const API_URL=import.meta.env.VITE_XENTRA_API_URL??'http://localhost:8080';
 const RUNNER_CONTROL_URL=import.meta.env.VITE_XENTRA_RUNNER_CONTROL_URL??'http://localhost:8081';
