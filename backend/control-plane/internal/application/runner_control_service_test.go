@@ -79,7 +79,9 @@ func TestOutboundRunnerEnrollmentAndTaskLifecycle(t *testing.T) {
 
 	var task domain.RunnerTask
 	for {
-		task, found, pollErr := service.Poll(ctx, enrollment.RunnerID, enrollment.RunnerToken, domain.Discovery{
+		var found bool
+		var pollErr error
+		task, found, pollErr = service.Poll(ctx, enrollment.RunnerID, enrollment.RunnerToken, domain.Discovery{
 			OS: "linux", Hostname: "prod-01", Capabilities: []string{"docker", "systemd"},
 		})
 		if pollErr != nil {
