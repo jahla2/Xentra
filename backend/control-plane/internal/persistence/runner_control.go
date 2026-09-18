@@ -134,10 +134,21 @@ WHERE id=$1 AND runner_id=$2 AND status='claimed'
 	if err != nil {
 		return err
 	}
-	if rows != 1 {
-		return errors.New("runner task is not claimable for completion")
+	if rows == 1 {
+		return nil
 	}
-	return nil
+
+	var ownerID, status string
+	if err := r.db.QueryRowContext(ctx, "SELECT runner_id,status FROM runner_tasks WHERE id=$1", taskID).Scan(&ownerID, &status); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return errors.New("runner task not found")
+		}
+		return err
+	}
+	if ownerID == runnerID && status == "completed" {
+		return nil
+	}
+	return errors.New("runner task is not claimable for completion")
 }
 
 func (r *PostgresRunnerControlRepository) GetTask(ctx context.Context, id string) (domain.RunnerTask, error) {
