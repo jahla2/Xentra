@@ -95,3 +95,23 @@ jobs:
             /tmp/xentra-ai.log
             /tmp/xentra-runner.log
             /tmp/xentra-control.log
+
+  containers:
+    runs-on: ubuntu-latest
+    needs: [go, python, ui]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build control-plane image
+        run: docker build -t xentra-control:test ./backend/control-plane
+      - name: Build runner image
+        run: docker build -t xentra-runner:test ./backend/runner
+      - name: Build AI service image
+        run: docker build -t xentra-ai:test ./backend/ai-service
+      - name: Build UI image
+        run: docker build -t xentra-ui:test ./ui
+      - name: Validate production compose
+        run: |
+          cp .env.example .env
+          mkdir -p secrets
+          touch secrets/github_app_private_key.pem secrets/runner_client_cert.pem secrets/runner_client_key.pem secrets/runner_server_ca.pem
+          docker compose --env-file .env -f docker-compose.prod.yml config >/dev/null
