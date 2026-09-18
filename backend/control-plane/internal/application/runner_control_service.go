@@ -109,12 +109,24 @@ func (s *RunnerControlService) Poll(
 	if err != nil {
 		return domain.RunnerTask{}, false, err
 	}
-	if discovery.OS != "" || discovery.Hostname != "" || discovery.Capabilities != nil {
+	if discovery.OS != "" || discovery.Hostname != "" || discovery.CPU != "" || discovery.Memory != "" || discovery.Disk != "" || discovery.Containers != nil || discovery.Capabilities != nil {
 		if discovery.OS != "" {
 			env.OS = discovery.OS
 		}
 		if discovery.Hostname != "" {
 			env.Hostname = discovery.Hostname
+		}
+		if discovery.CPU != "" {
+			env.CPU = discovery.CPU
+		}
+		if discovery.Memory != "" {
+			env.Memory = discovery.Memory
+		}
+		if discovery.Disk != "" {
+			env.Disk = discovery.Disk
+		}
+		if discovery.Containers != nil {
+			env.Containers = discovery.Containers
 		}
 		if discovery.Capabilities != nil {
 			env.Capabilities = discovery.Capabilities
