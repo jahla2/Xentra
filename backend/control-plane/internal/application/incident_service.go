@@ -26,14 +26,28 @@ type IncidentRepository interface {
 }
 
 type IncidentService struct {
-	repo         IncidentRepository
-	integrations RepositoryIntegrationRepository
-	investigator Investigator
+	repo              IncidentRepository
+	integrations      RepositoryIntegrationRepository
+	investigator      Investigator
 	repositoryContext RepositoryContextClient
+	memory            IncidentMemory
 }
 
-func NewIncidentService(repo IncidentRepository, integrations RepositoryIntegrationRepository, investigator Investigator, repositoryContext RepositoryContextClient) *IncidentService {
-	return &IncidentService{repo: repo, integrations: integrations, investigator: investigator, repositoryContext: repositoryContext}
+func NewIncidentService(
+	repo IncidentRepository,
+	integrations RepositoryIntegrationRepository,
+	investigator Investigator,
+	repositoryContext RepositoryContextClient,
+	memory ...IncidentMemory,
+) *IncidentService {
+	var incidentMemory IncidentMemory
+	if len(memory) > 0 {
+		incidentMemory = memory[0]
+	}
+	return &IncidentService{
+		repo: repo, integrations: integrations, investigator: investigator,
+		repositoryContext: repositoryContext, memory: incidentMemory,
+	}
 }
 
 func (s *IncidentService) Create(ctx context.Context, organizationID, environmentID, question string) (domain.Incident, error) {
@@ -84,6 +98,15 @@ func (s *IncidentService) Create(ctx context.Context, organizationID, environmen
 	}
 	if err := s.repo.Save(ctx, incident); err != nil {
 		return domain.Incident{}, err
+	}
+	if s.memory != nil {
+		if rememberErr := s.memory.Remember(ctx, incident); rememberErr != nil {
+			incident.Timeline = append(incident.Timeline, domain.TimelineEvent{
+				Source: "memory", Kind: "memory_error",
+				Summary: rememberErr.Error(), OccurredAt: time.Now().UTC(),
+			})
+			_ = s.repo.Save(ctx, incident)
+		}
 	}
 	return incident, nil
 }

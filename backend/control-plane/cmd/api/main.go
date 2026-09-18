@@ -26,6 +26,7 @@ type repositoriesSet struct {
 	integrations application.RepositoryIntegrationRepository
 	webhookDeliveries application.WebhookDeliveryRepository
 	incidents    application.IncidentRepository
+	incidentMemory application.IncidentMemoryRepository
 	actions      application.ActionRepository
 	audit        application.AuditRepository
 	db           *sql.DB
@@ -67,9 +68,10 @@ func main() {
 
 	projectService := application.NewProjectService(stores.projects)
 	environmentService := application.NewEnvironmentService(stores.environments, stores.projects, connections, credentialService)
-	investigationService := application.NewInvestigationService(stores.environments, connections, aiClient)
+	memoryService := application.NewIncidentMemoryService(stores.incidentMemory, aiClient)
+	investigationService := application.NewInvestigationService(stores.environments, connections, aiClient, memoryService)
 	integrationService := application.NewIntegrationService(stores.integrations, credentialService, stores.environments, githubAuth)
-	incidentService := application.NewIncidentService(stores.incidents, stores.integrations, investigationService, githubClient)
+	incidentService := application.NewIncidentService(stores.incidents, stores.integrations, investigationService, githubClient, memoryService)
 	webhookService := application.NewGitHubWebhookService(stores.integrations, credentialService, stores.webhookDeliveries, incidentService)
 	actionService := application.NewActionService(stores.actions, stores.audit, stores.environments, stores.incidents, connections)
 
@@ -99,6 +101,7 @@ func repositories(ctx context.Context) repositoriesSet {
 			integrations: application.NewMemoryIntegrationRepository(),
 			webhookDeliveries: application.NewMemoryWebhookDeliveryRepository(),
 			incidents:    application.NewMemoryIncidentRepository(),
+			incidentMemory: application.NewMemoryIncidentMemoryRepository(),
 			actions:      application.NewMemoryActionRepository(),
 			audit:        application.NewMemoryAuditRepository(),
 		}
@@ -123,6 +126,7 @@ func repositories(ctx context.Context) repositoriesSet {
 		integrations: persistence.NewPostgresIntegrationRepository(db),
 		webhookDeliveries: persistence.NewPostgresWebhookDeliveryRepository(db),
 		incidents:    persistence.NewPostgresIncidentRepository(db),
+		incidentMemory: persistence.NewPostgresIncidentMemoryRepository(db),
 		actions:      persistence.NewPostgresActionRepository(db),
 		audit:        persistence.NewPostgresAuditRepository(db),
 		db:           db,
