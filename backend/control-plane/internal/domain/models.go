@@ -16,6 +16,8 @@ type Environment struct {
 	SSHHostKeyFingerprint string   `json:"sshHostKeyFingerprint,omitempty"`
 	CredentialID          string   `json:"credentialId,omitempty"`
 	HealthURL             string   `json:"healthUrl,omitempty"`
+	AWSRegion             string   `json:"awsRegion,omitempty"`
+	AWSInstanceID         string   `json:"awsInstanceId,omitempty"`
 	OS                    string   `json:"os"`
 	Hostname              string   `json:"hostname"`
 	CPU                   string   `json:"cpu"`

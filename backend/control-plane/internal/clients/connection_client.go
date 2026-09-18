@@ -10,11 +10,12 @@ import (
 type ConnectionClient struct {
 	runner   *RunnerClient
 	ssh      *SSHClient
+	ssm      *SSMClient
 	outbound *OutboundRunnerClient
 }
 
-func NewConnectionClient(runner *RunnerClient, ssh *SSHClient, outbound *OutboundRunnerClient) *ConnectionClient {
-	return &ConnectionClient{runner: runner, ssh: ssh, outbound: outbound}
+func NewConnectionClient(runner *RunnerClient, ssh *SSHClient, ssm *SSMClient, outbound *OutboundRunnerClient) *ConnectionClient {
+	return &ConnectionClient{runner: runner, ssh: ssh, ssm: ssm, outbound: outbound}
 }
 
 func (c *ConnectionClient) Discover(ctx context.Context, env domain.Environment) (domain.Discovery, error) {
@@ -23,6 +24,8 @@ func (c *ConnectionClient) Discover(ctx context.Context, env domain.Environment)
 		return c.runner.Discover(ctx, env)
 	case "runner_outbound":
 		return domain.Discovery{OS: env.OS, Hostname: env.Hostname, Capabilities: env.Capabilities}, nil
+	case "aws_ssm":
+		return c.ssm.Discover(ctx, env)
 	case "ssh":
 		return c.ssh.Discover(ctx, env)
 	default:
@@ -39,6 +42,8 @@ func (c *ConnectionClient) Collect(ctx context.Context, env domain.Environment) 
 			return nil, errors.New("outbound runner client unavailable")
 		}
 		return c.outbound.Collect(ctx, env)
+	case "aws_ssm":
+		return c.ssm.Collect(ctx, env)
 	case "ssh":
 		return c.ssh.Collect(ctx, env)
 	default:
@@ -55,6 +60,8 @@ func (c *ConnectionClient) ExecuteReadTool(ctx context.Context, env domain.Envir
 			return domain.Evidence{}, errors.New("outbound runner client unavailable")
 		}
 		return c.outbound.ExecuteReadTool(ctx, env, request)
+	case "aws_ssm":
+		return c.ssm.ExecuteReadTool(ctx, env, request)
 	case "ssh":
 		return c.ssh.ExecuteReadTool(ctx, env, request)
 	default:
@@ -71,6 +78,8 @@ func (c *ConnectionClient) ExecuteAction(ctx context.Context, env domain.Environ
 			return "", errors.New("outbound runner client unavailable")
 		}
 		return c.outbound.ExecuteAction(ctx, env, action, target)
+	case "aws_ssm":
+		return c.ssm.ExecuteAction(ctx, env, action, target)
 	case "ssh":
 		return c.ssh.ExecuteAction(ctx, env, action, target)
 	default:
@@ -87,6 +96,8 @@ func (c *ConnectionClient) VerifyAction(ctx context.Context, env domain.Environm
 			return domain.VerificationResult{}, errors.New("outbound runner client unavailable")
 		}
 		return c.outbound.VerifyAction(ctx, env, action, target)
+	case "aws_ssm":
+		return c.ssm.VerifyAction(ctx, env, action, target)
 	case "ssh":
 		return c.ssh.VerifyAction(ctx, env, action, target)
 	default:

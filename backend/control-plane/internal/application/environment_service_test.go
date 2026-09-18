@@ -113,3 +113,37 @@ func TestCreateEnvironmentRejectsUnsafeHealthURL(t *testing.T) {
 		}
 	}
 }
+
+
+func TestCreateAWSSSMEnvironmentStoresTargetAndDiscovers(t *testing.T) {
+	repo := NewMemoryEnvironmentRepository()
+	discovery := fakeDiscoveryClient{domain.Discovery{
+		OS: "linux", Hostname: "ip-10-0-0-25", CPU: "4 cores",
+		Capabilities: []string{"docker", "systemd", "http"},
+	}}
+	service := NewEnvironmentService(repo, projectRepoForTest(), discovery, nil)
+
+	env, err := service.Create(context.Background(), "org-a", CreateEnvironmentInput{
+		ProjectID: "prj-1", Name: "AWS Production", Type: "production",
+		ConnectionType: "aws_ssm", AWSRegion: "ap-southeast-2", AWSInstanceID: "i-0123456789abcdef0",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env.ConnectionType != "aws_ssm" || env.AWSRegion != "ap-southeast-2" || env.AWSInstanceID != "i-0123456789abcdef0" || env.Hostname != "ip-10-0-0-25" {
+		t.Fatalf("unexpected AWS SSM environment: %#v", env)
+	}
+}
+
+func TestCreateAWSSSMEnvironmentRejectsInvalidTarget(t *testing.T) {
+	service := NewEnvironmentService(NewMemoryEnvironmentRepository(), projectRepoForTest(), fakeDiscoveryClient{}, nil)
+	cases := []CreateEnvironmentInput{
+		{ProjectID: "prj-1", Name: "AWS", ConnectionType: "aws_ssm", AWSRegion: "bad region", AWSInstanceID: "i-0123456789abcdef0"},
+		{ProjectID: "prj-1", Name: "AWS", ConnectionType: "aws_ssm", AWSRegion: "ap-southeast-2", AWSInstanceID: "not-an-instance"},
+	}
+	for _, input := range cases {
+		if _, err := service.Create(context.Background(), "org-a", input); err == nil {
+			t.Fatalf("expected invalid AWS SSM target to be rejected: %#v", input)
+		}
+	}
+}
