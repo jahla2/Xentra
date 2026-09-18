@@ -89,8 +89,17 @@ func TestGitHubClientBoundsPatchEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, item := range result.Evidence {
-		if item.Source == "github.commit_diff" && strings.Count(item.Output, "x") > maxPatchCharsPerFile {
-			t.Fatalf("patch evidence exceeded per-file bound")
+		if item.Source != "github.commit_diff" {
+			continue
+		}
+		marker := "patch:\n"
+		index := strings.Index(item.Output, marker)
+		if index < 0 {
+			t.Fatal("expected patch evidence")
+		}
+		patchSection := item.Output[index+len(marker):]
+		if len(strings.TrimSuffix(patchSection, "\n")) > maxPatchCharsPerFile {
+			t.Fatalf("patch evidence exceeded per-file bound: %d", len(patchSection))
 		}
 	}
 }
