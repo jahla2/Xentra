@@ -125,6 +125,14 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
 output = sys.argv[1]
 
 class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/health":
+            self.send_response(200)
+            self.end_headers()
+            return
+        self.send_response(404)
+        self.end_headers()
+
     def do_POST(self):
         if self.path != "/v1/traces":
             self.send_response(404)
@@ -165,8 +173,7 @@ PY
 : >"$OTEL_LOG"
 python "$TMP/otel_sink.py" "$OTEL_LOG" >"$TMP/otel-sink.log" 2>&1 &
 OTEL_PID=$!
-wait_http http://127.0.0.1:4318 >/dev/null 2>&1 || true
-sleep 1
+wait_http http://127.0.0.1:4318/health
 
 echo "Generating Runner-control mTLS certificates"
 generate_runner_mtls
