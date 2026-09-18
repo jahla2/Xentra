@@ -73,7 +73,7 @@ status_request() {
 start_control() {
   (
     cd "$ROOT/backend/control-plane"
-    exec env       XENTRA_CONTROL_ADDR=127.0.0.1:8080       XENTRA_AI_URL=http://127.0.0.1:8000       XENTRA_DATABASE_URL="$XENTRA_DATABASE_URL"       XENTRA_MASTER_KEY="$XENTRA_MASTER_KEY"       go run ./cmd/api
+    exec env       XENTRA_CONTROL_ADDR=127.0.0.1:8080       XENTRA_AI_URL=http://127.0.0.1:8000       XENTRA_DATABASE_URL="$XENTRA_DATABASE_URL"       XENTRA_MASTER_KEY="$XENTRA_MASTER_KEY"       XENTRA_RUNNER_INSECURE_DEV=true       go run ./cmd/api
   ) >"$CONTROL_LOG" 2>&1 &
   CONTROL_PID=$!
   wait_http http://127.0.0.1:8080/health
@@ -90,7 +90,7 @@ wait_http http://127.0.0.1:8000/health
 echo "Starting runner"
 (
   cd "$ROOT/backend/runner"
-  exec env XENTRA_RUNNER_ADDR=127.0.0.1:8090 go run ./cmd/runner
+  exec env XENTRA_RUNNER_ADDR=127.0.0.1:8090 XENTRA_RUNNER_INSECURE_DEV=true go run ./cmd/runner
 ) >"$RUNNER_LOG" 2>&1 &
 RUNNER_PID=$!
 wait_http http://127.0.0.1:8090/health
