@@ -4,7 +4,7 @@ import {useWorkspace} from '../app/WorkspaceProvider';
 export function ApprovalsPage(){
  const{
   principal,environments,selectedEnvironmentId,setSelectedEnvironmentId,
-  latestIncident,action,isOwner,loading,proposeAction,approveAction,
+  latestIncident,action,isOwner,loading,proposeAction,approveAction,rejectAction,
  }=useWorkspace();
  const[form,setForm]=useState({action:'docker.restart',target:'',reason:'Recover unhealthy service'});
 
@@ -37,7 +37,11 @@ export function ApprovalsPage(){
       <p><b>{action.action}</b> → {action.target}</p>
       <p>Status: {action.status}</p>
       <p>{action.reason}</p>
-      {action.status==='pending_approval'&&isOwner&&<button className="primary" disabled={loading} onClick={()=>void approveAction()}>Approve as {principal?.email}</button>}
+      {action.status==='pending_approval'&&isOwner&&<div className="quick-links">
+       <button className="nav" disabled={loading} onClick={()=>void rejectAction()}>Reject</button>
+       <button className="primary" disabled={loading} onClick={()=>void approveAction()}>Approve & Run as {principal?.email}</button>
+      </div>}
+      {action.status==='rejected'&&<p>Rejected by {action.rejectedBy||'owner'}.</p>}
       {action.verification?.summary&&<p>Verification: {action.verification.summary}</p>}
      </div>
     :<p className="muted">No remediation proposal is active in this session.</p>}
