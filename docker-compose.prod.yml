@@ -51,26 +51,34 @@ services:
       XENTRA_RATE_LIMIT_AUTH_PER_MINUTE: ${XENTRA_RATE_LIMIT_AUTH_PER_MINUTE:-20}
       XENTRA_RATE_LIMIT_API_PER_MINUTE: ${XENTRA_RATE_LIMIT_API_PER_MINUTE:-600}
       XENTRA_RATE_LIMIT_WEBHOOK_PER_MINUTE: ${XENTRA_RATE_LIMIT_WEBHOOK_PER_MINUTE:-300}
+      XENTRA_RATE_LIMIT_RUNNER_PER_MINUTE: ${XENTRA_RATE_LIMIT_RUNNER_PER_MINUTE:-2400}
       XENTRA_METRICS_TOKEN: ${XENTRA_METRICS_TOKEN}
       XENTRA_SESSION_TTL_HOURS: ${XENTRA_SESSION_TTL_HOURS:-24}
       XENTRA_GITHUB_APP_ID: ${XENTRA_GITHUB_APP_ID:-}
       XENTRA_GITHUB_APP_PRIVATE_KEY_FILE: /run/secrets/github_app_private_key.pem
       XENTRA_GITHUB_API_URL: ${XENTRA_GITHUB_API_URL:-https://api.github.com}
-      XENTRA_RUNNER_CLIENT_CERT: /run/secrets/runner_client_cert.pem
-      XENTRA_RUNNER_CLIENT_KEY: /run/secrets/runner_client_key.pem
-      XENTRA_RUNNER_SERVER_CA: /run/secrets/runner_server_ca.pem
+      XENTRA_LEGACY_RUNNER_ENABLED: "false"
+      XENTRA_RUNNER_CONTROL_ADDR: ${XENTRA_RUNNER_CONTROL_ADDR:-:8443}
+      XENTRA_RUNNER_CONTROL_TLS_CERT: /run/secrets/runner_control_server_cert.pem
+      XENTRA_RUNNER_CONTROL_TLS_KEY: /run/secrets/runner_control_server_key.pem
+      XENTRA_RUNNER_CONTROL_CLIENT_CA: /run/secrets/runner_control_client_ca.pem
     secrets:
       - github_app_private_key.pem
-      - runner_client_cert.pem
-      - runner_client_key.pem
-      - runner_server_ca.pem
-    networks: [xentra-internal]
+      - runner_control_server_cert.pem
+      - runner_control_server_key.pem
+      - runner_control_client_ca.pem
+    ports:
+      - "8443:8443"
+    networks:
+      - xentra-internal
+      - xentra-public
 
   ui:
     build:
       context: ./ui
       args:
         VITE_XENTRA_API_URL: ""
+        VITE_XENTRA_RUNNER_CONTROL_URL: ${XENTRA_PUBLIC_RUNNER_CONTROL_URL}
     restart: unless-stopped
     depends_on: [control-plane]
     ports:
@@ -90,9 +98,9 @@ networks:
 secrets:
   github_app_private_key.pem:
     file: ./secrets/github_app_private_key.pem
-  runner_client_cert.pem:
-    file: ./secrets/runner_client_cert.pem
-  runner_client_key.pem:
-    file: ./secrets/runner_client_key.pem
-  runner_server_ca.pem:
-    file: ./secrets/runner_server_ca.pem
+  runner_control_server_cert.pem:
+    file: ./secrets/runner_control_server_cert.pem
+  runner_control_server_key.pem:
+    file: ./secrets/runner_control_server_key.pem
+  runner_control_client_ca.pem:
+    file: ./secrets/runner_control_client_ca.pem
