@@ -97,10 +97,12 @@ func TestOutboundRunnerEnrollmentAndTaskLifecycle(t *testing.T) {
 	if task.Tool != "system.info" {
 		t.Fatalf("unexpected task: %#v", task)
 	}
-	if err := service.Complete(ctx, enrollment.RunnerID, task.ID, enrollment.RunnerToken, domain.RunnerTaskResult{
-		Success: true, Output: "Linux prod-01",
-	}); err != nil {
+	resultPayload := domain.RunnerTaskResult{Success: true, Output: "Linux prod-01"}
+	if err := service.Complete(ctx, enrollment.RunnerID, task.ID, enrollment.RunnerToken, resultPayload); err != nil {
 		t.Fatal(err)
+	}
+	if err := service.Complete(ctx, enrollment.RunnerID, task.ID, enrollment.RunnerToken, resultPayload); err != nil {
+		t.Fatalf("duplicate result acknowledgement should be idempotent: %v", err)
 	}
 
 	select {
