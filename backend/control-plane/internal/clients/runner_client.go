@@ -22,6 +22,12 @@ type RunnerClient struct {
 	requireTLS bool
 }
 
+var runnerReadTools = map[string]bool{
+	"system.info": true, "system.disk": true, "system.cpu": true, "system.memory": true,
+	"system.service_status": true, "system.journal": true,
+	"docker.list": true, "docker.logs": true, "docker.inspect": true, "docker.stats": true,
+}
+
 func NewRunnerClient() *RunnerClient {
 	return &RunnerClient{http: &http.Client{Timeout: 8 * time.Second}}
 }
@@ -51,16 +57,11 @@ func NewRunnerClientFromEnv() (*RunnerClient, error) {
 		return nil, errors.New("runner server CA contains no valid certificates")
 	}
 
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			MinVersion:   tls.VersionTLS13,
-			Certificates: []tls.Certificate{certificate},
-			RootCAs:      rootCAs,
-		},
-	}
+	transport := &http.Transport{TLSClientConfig: &tls.Config{
+		MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{certificate}, RootCAs: rootCAs,
+	}}
 	return &RunnerClient{
-		http:       &http.Client{Timeout: 8 * time.Second, Transport: transport},
-		requireTLS: true,
+		http: &http.Client{Timeout: 8 * time.Second, Transport: transport}, requireTLS: true,
 	}, nil
 }
 
@@ -93,17 +94,29 @@ func (c *RunnerClient) Discover(ctx context.Context, env domain.Environment) (do
 }
 
 func (c *RunnerClient) Collect(ctx context.Context, env domain.Environment) ([]domain.Evidence, error) {
-	tools := []string{"system.info", "system.disk", "docker.list"}
+	tools := []string{"system.info", "system.disk", "system.cpu", "system.memory", "docker.list"}
 	evidence := make([]domain.Evidence, 0, len(tools))
 	for _, tool := range tools {
-		result, err := c.executeTool(ctx, env, tool, map[string]string{})
+		item, err := c.ExecuteReadTool(ctx, env, domain.ToolRequest{Tool: tool, Arguments: map[string]string{}})
 		if err != nil {
-			evidence = append(evidence, domain.Evidence{Source: tool, Success: false, Output: err.Error()})
-			continue
+			item = domain.Evidence{Source: tool, Success: false, Output: err.Error()}
 		}
-		evidence = append(evidence, domain.Evidence{Source: tool, Success: result.Success, Output: result.Output})
+		evidence = append(evidence, item)
 	}
 	return evidence, nil
+}
+
+func (c *RunnerClient) ExecuteReadTool(ctx context.Context, env domain.Environment, request domain.ToolRequest) (domain.Evidence, error) {
+	if !runnerReadTools[request.Tool] {
+		return domain.Evidence{}, errors.New("tool is not an allowlisted read-only Runner tool")
+	}
+	result, err := c.executeTool(ctx, env, request.Tool, request.Arguments)
+	if err != nil {
+		return domain.Evidence{}, err
+	}
+	return domain.Evidence{
+		Source: toolEvidenceSource(request), Success: result.Success, Output: result.Output,
+	}, nil
 }
 
 func (c *RunnerClient) ExecuteAction(ctx context.Context, env domain.Environment, action, target string) (string, error) {
@@ -139,8 +152,7 @@ func (c *RunnerClient) VerifyAction(ctx context.Context, env domain.Environment,
 	output := strings.TrimSpace(strings.ToLower(result.Output))
 	healthy := result.Success && (output == "true" || output == "active" || output == "running")
 	return domain.VerificationResult{
-		Healthy: healthy,
-		Summary: verificationSummary(healthy, target),
+		Healthy: healthy, Summary: verificationSummary(healthy, target),
 		Evidence: []domain.Evidence{{Source: tool, Output: result.Output, Success: result.Success}},
 	}, nil
 }
@@ -193,6 +205,16 @@ func (c *RunnerClient) endpoint(baseURL, path string) (string, error) {
 		return "", errors.New("runner URL must use http or https")
 	}
 	return parsed.String() + path, nil
+}
+
+func toolEvidenceSource(request domain.ToolRequest) string {
+	if target := request.Arguments["container"]; target != "" {
+		return request.Tool + ":" + target
+	}
+	if target := request.Arguments["service"]; target != "" {
+		return request.Tool + ":" + target
+	}
+	return request.Tool
 }
 
 func actionArguments(action, target string) (map[string]string, error) {

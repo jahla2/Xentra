@@ -41,10 +41,29 @@ type Evidence struct {
 	Success bool   `json:"success"`
 }
 
+type ToolRequest struct {
+	Tool      string            `json:"tool"`
+	Arguments map[string]string `json:"arguments"`
+}
+
 type InvestigationRequest struct {
 	Environment Environment `json:"environment"`
 	Question    string      `json:"question"`
 	Evidence    []Evidence  `json:"evidence"`
+}
+
+type AgentInvestigationRequest struct {
+	Environment    Environment `json:"environment"`
+	Question       string      `json:"question"`
+	Evidence       []Evidence  `json:"evidence"`
+	AvailableTools []string    `json:"availableTools"`
+	RemainingSteps int         `json:"remainingSteps"`
+}
+
+type AgentDecision struct {
+	Mode         string               `json:"mode"`
+	ToolRequests []ToolRequest        `json:"toolRequests,omitempty"`
+	Finding      *InvestigationResult `json:"finding,omitempty"`
 }
 
 type InvestigationResult struct {

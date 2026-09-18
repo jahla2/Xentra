@@ -50,30 +50,75 @@ func (c *SSHClient) Discover(ctx context.Context, env domain.Environment) (domai
 }
 
 func (c *SSHClient) Collect(ctx context.Context, env domain.Environment) ([]domain.Evidence, error) {
-	client, err := c.connect(ctx, env)
-	if err != nil { return nil, err }
-	defer client.Close()
-
-	evidence := []domain.Evidence{}
-	for source, command := range map[string]string{
-		"system.info": "uname -a",
-		"system.disk": "df -h",
-		"docker.list": "docker ps -a --format '{{.Names}}\t{{.Status}}\t{{.Image}}'",
-	} {
-		output, runErr := runSSH(client, command)
-		evidence = append(evidence, domain.Evidence{Source: source, Success: runErr == nil, Output: outputOrError(output, runErr)})
+	requests := []domain.ToolRequest{
+		{Tool: "system.info", Arguments: map[string]string{}},
+		{Tool: "system.disk", Arguments: map[string]string{}},
+		{Tool: "system.cpu", Arguments: map[string]string{}},
+		{Tool: "system.memory", Arguments: map[string]string{}},
+		{Tool: "docker.list", Arguments: map[string]string{}},
 	}
-
-	names, err := runSSH(client, "docker ps --format '{{.Names}}'")
-	if err == nil {
-		for index, name := range strings.Fields(names) {
-			if index >= 5 { break }
-			if !safeMutationTarget(name) { continue }
-			output, logErr := runSSH(client, "docker logs --tail 100 "+name)
-			evidence = append(evidence, domain.Evidence{Source: "docker.logs:" + name, Success: logErr == nil, Output: outputOrError(output, logErr)})
+	evidence := make([]domain.Evidence, 0, len(requests))
+	for _, request := range requests {
+		item, err := c.ExecuteReadTool(ctx, env, request)
+		if err != nil {
+			item = domain.Evidence{Source: request.Tool, Success: false, Output: err.Error()}
 		}
+		evidence = append(evidence, item)
 	}
 	return evidence, nil
+}
+
+func (c *SSHClient) ExecuteReadTool(ctx context.Context, env domain.Environment, request domain.ToolRequest) (domain.Evidence, error) {
+	command, err := sshReadToolCommand(request)
+	if err != nil {
+		return domain.Evidence{}, err
+	}
+	client, err := c.connect(ctx, env)
+	if err != nil {
+		return domain.Evidence{}, err
+	}
+	defer client.Close()
+	output, runErr := runSSH(client, command)
+	return domain.Evidence{
+		Source: toolEvidenceSource(request), Success: runErr == nil, Output: outputOrError(output, runErr),
+	}, nil
+}
+
+func sshReadToolCommand(request domain.ToolRequest) (string, error) {
+	switch request.Tool {
+	case "system.info":
+		return "uname -a", nil
+	case "system.disk":
+		return "df -h", nil
+	case "system.cpu":
+		return "lscpu", nil
+	case "system.memory":
+		return "free -m", nil
+	case "docker.list":
+		return "docker ps -a --format '{{.Names}}\t{{.Status}}\t{{.Image}}'", nil
+	case "docker.logs":
+		target := request.Arguments["container"]
+		if !safeMutationTarget(target) { return "", errors.New("valid container is required") }
+		return "docker logs --tail 200 " + target, nil
+	case "docker.inspect":
+		target := request.Arguments["container"]
+		if !safeMutationTarget(target) { return "", errors.New("valid container is required") }
+		return "docker inspect " + target, nil
+	case "docker.stats":
+		target := request.Arguments["container"]
+		if !safeMutationTarget(target) { return "", errors.New("valid container is required") }
+		return "docker stats --no-stream --format '{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}\t{{.BlockIO}}' " + target, nil
+	case "system.service_status":
+		target := request.Arguments["service"]
+		if !safeMutationTarget(target) { return "", errors.New("valid service is required") }
+		return "systemctl is-active " + target, nil
+	case "system.journal":
+		target := request.Arguments["service"]
+		if !safeMutationTarget(target) { return "", errors.New("valid service is required") }
+		return "journalctl -u " + target + " -n 200 --no-pager", nil
+	default:
+		return "", errors.New("tool is not an allowlisted read-only SSH tool")
+	}
 }
 
 func (c *SSHClient) ExecuteAction(ctx context.Context, env domain.Environment, action, target string) (string, error) {

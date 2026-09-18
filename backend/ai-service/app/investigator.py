@@ -10,7 +10,14 @@ from app.providers import (
     OpenAICompatibleProvider,
     ProviderError,
 )
-from app.schemas import Environment, Evidence, InvestigationFinding, InvestigationRequest
+from app.schemas import (
+    AgentDecision,
+    AgentInvestigationRequest,
+    Environment,
+    Evidence,
+    InvestigationFinding,
+    InvestigationRequest,
+)
 
 
 class InvestigationEngine:
@@ -33,6 +40,14 @@ class InvestigationEngine:
             if self.fallback is None:
                 raise
             return self.fallback.investigate(request)
+
+    def next_step(self, request: AgentInvestigationRequest) -> AgentDecision:
+        try:
+            return self.provider.decide(request)
+        except ProviderError:
+            if self.fallback is None:
+                raise
+            return self.fallback.decide(request)
 
 
 def build_engine_from_env() -> InvestigationEngine:
