@@ -28,6 +28,8 @@ var runnerReadTools = map[string]bool{
 	"system.info": true, "system.disk": true, "system.cpu": true, "system.memory": true,
 	"system.service_status": true, "system.journal": true,
 	"docker.list": true, "docker.logs": true, "docker.inspect": true, "docker.stats": true, "docker.status": true,
+	"git.status": true, "git.log": true, "git.diff": true, "git.show_commit": true,
+	"http.health_check": true, "dns.lookup": true,
 }
 
 func NewRunnerClient() *RunnerClient {
@@ -223,6 +225,15 @@ func toolEvidenceSource(request domain.ToolRequest) string {
 		return request.Tool + ":" + target
 	}
 	if target := request.Arguments["service"]; target != "" {
+		return request.Tool + ":" + target
+	}
+	if target := request.Arguments["url"]; target != "" {
+		return request.Tool + ":" + target
+	}
+	if target := request.Arguments["host"]; target != "" {
+		return request.Tool + ":" + target
+	}
+	if target := request.Arguments["commit"]; target != "" {
 		return request.Tool + ":" + target
 	}
 	return request.Tool

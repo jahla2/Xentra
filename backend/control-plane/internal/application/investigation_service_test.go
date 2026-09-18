@@ -60,7 +60,7 @@ func testInvestigationEnvironment() (*MemoryEnvironmentRepository, domain.Enviro
 	repo := NewMemoryEnvironmentRepository()
 	env := domain.Environment{
 		ID: "env-1", OrganizationID: "org-a", Name: "Production", Type: "production",
-		RunnerURL: "http://runner:8090", Capabilities: []string{"docker", "systemd"},
+		RunnerURL: "http://runner:8090", Capabilities: []string{"docker", "systemd", "git", "http", "dns"},
 	}
 	_ = repo.Save(context.Background(), env)
 	return repo, env
@@ -137,5 +137,36 @@ func TestInvestigateRejectsCrossOrganizationEnvironment(t *testing.T) {
 	service := NewInvestigationService(repo, &fakeToolClient{}, &fakeAIClient{})
 	if _, err := service.Investigate(context.Background(), "org-b", "env-1", "Why?"); err == nil {
 		t.Fatal("expected cross-organization investigation to fail")
+	}
+}
+
+
+func TestAvailableInvestigationToolsIncludeMVPReadOnlyDiagnostics(t *testing.T) {
+	tools := availableInvestigationTools(domain.Environment{Capabilities: []string{"docker", "systemd", "git", "http", "dns"}})
+	for _, expected := range []string{"git.status", "git.log", "git.diff", "git.show_commit", "http.health_check", "dns.lookup"} {
+		found := false
+		for _, tool := range tools {
+			if tool == expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("expected %s in available tools: %#v", expected, tools)
+		}
+	}
+}
+
+func TestValidateInvestigationToolRequestRequiresTypedNetworkAndCommitArguments(t *testing.T) {
+	available := []string{"git.show_commit", "http.health_check", "dns.lookup"}
+	cases := []domain.ToolRequest{
+		{Tool: "git.show_commit", Arguments: map[string]string{}},
+		{Tool: "http.health_check", Arguments: map[string]string{}},
+		{Tool: "dns.lookup", Arguments: map[string]string{}},
+	}
+	for _, request := range cases {
+		if err := validateInvestigationToolRequest(request, available); err == nil {
+			t.Fatalf("expected %s without required argument to be rejected", request.Tool)
+		}
 	}
 }

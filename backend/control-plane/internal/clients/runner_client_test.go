@@ -36,3 +36,12 @@ func TestActionArgumentsRemainTyped(t *testing.T) {
 }
 
 var _ = domain.Environment{}
+
+
+func TestMVPReadToolsRemainAllowlisted(t *testing.T) {
+	for _, tool := range []string{"git.status", "git.log", "git.diff", "git.show_commit", "http.health_check", "dns.lookup"} {
+		if !runnerReadTools[tool] {
+			t.Fatalf("expected %s to be allowlisted", tool)
+		}
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -43,6 +44,8 @@ func (c *SSHClient) Discover(ctx context.Context, env domain.Environment) (domai
 		"systemd": "command -v systemctl",
 		"nginx": "command -v nginx",
 		"git": "command -v git",
+		"http": "command -v curl",
+		"dns": "command -v getent",
 	} {
 		if _, err := runSSH(client, command); err == nil { caps = append(caps, name) }
 	}
@@ -112,27 +115,53 @@ func sshReadToolCommand(request domain.ToolRequest) (string, error) {
 	case "system.memory":
 		return "free -m", nil
 	case "docker.list":
-		return "docker ps -a --format '{{.Names}}\t{{.Status}}\t{{.Image}}'", nil
+		return "docker ps -a --format '{{.Names}}\\t{{.Status}}\\t{{.Image}}'", nil
 	case "docker.logs":
 		target := request.Arguments["container"]
 		if !safeMutationTarget(target) { return "", errors.New("valid container is required") }
-		return "docker logs --tail 200 " + target, nil
+		return "docker logs --tail 200 " + shellQuote(target), nil
 	case "docker.inspect":
 		target := request.Arguments["container"]
 		if !safeMutationTarget(target) { return "", errors.New("valid container is required") }
-		return "docker inspect " + target, nil
+		return "docker inspect " + shellQuote(target), nil
 	case "docker.stats":
 		target := request.Arguments["container"]
 		if !safeMutationTarget(target) { return "", errors.New("valid container is required") }
-		return "docker stats --no-stream --format '{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}\t{{.BlockIO}}' " + target, nil
+		return "docker stats --no-stream --format '{{.Name}}\\t{{.CPUPerc}}\\t{{.MemUsage}}\\t{{.NetIO}}\\t{{.BlockIO}}' " + shellQuote(target), nil
 	case "system.service_status":
 		target := request.Arguments["service"]
 		if !safeMutationTarget(target) { return "", errors.New("valid service is required") }
-		return "systemctl is-active " + target, nil
+		return "systemctl is-active " + shellQuote(target), nil
 	case "system.journal":
 		target := request.Arguments["service"]
 		if !safeMutationTarget(target) { return "", errors.New("valid service is required") }
-		return "journalctl -u " + target + " -n 200 --no-pager", nil
+		return "journalctl -u " + shellQuote(target) + " -n 200 --no-pager", nil
+	case "git.status":
+		repoPath, ok := safeSSHRepoPath(request.Arguments["path"])
+		if !ok { return "", errors.New("valid repository path is required") }
+		return "git -C " + shellQuote(repoPath) + " status --short --branch", nil
+	case "git.log":
+		repoPath, ok := safeSSHRepoPath(request.Arguments["path"])
+		if !ok { return "", errors.New("valid repository path is required") }
+		return "git -C " + shellQuote(repoPath) + " log -n 10 --oneline --decorate", nil
+	case "git.diff":
+		repoPath, ok := safeSSHRepoPath(request.Arguments["path"])
+		if !ok { return "", errors.New("valid repository path is required") }
+		return "git -C " + shellQuote(repoPath) + " diff --stat", nil
+	case "git.show_commit":
+		repoPath, ok := safeSSHRepoPath(request.Arguments["path"])
+		if !ok { return "", errors.New("valid repository path is required") }
+		commit := strings.TrimSpace(request.Arguments["commit"])
+		if !safeCommitSHA.MatchString(commit) { return "", errors.New("valid commit SHA is required") }
+		return "git -C " + shellQuote(repoPath) + " show --stat --oneline --decorate --no-renames " + commit, nil
+	case "http.health_check":
+		targetURL := strings.TrimSpace(request.Arguments["url"])
+		if !safeSSHHTTPURL(targetURL) { return "", errors.New("valid http/https URL is required") }
+		return "curl --fail --silent --show-error --location --max-time 8 -o /dev/null -w '%{http_code}' " + shellQuote(targetURL), nil
+	case "dns.lookup":
+		host := strings.TrimSpace(request.Arguments["host"])
+		if !safeMutationTarget(host) { return "", errors.New("valid hostname is required") }
+		return "getent hosts " + shellQuote(host), nil
 	default:
 		return "", errors.New("tool is not an allowlisted read-only SSH tool")
 	}
@@ -233,6 +262,31 @@ func outputOrError(output string, err error) string {
 	if output != "" { return output }
 	if err != nil { return err.Error() }
 	return ""
+}
+
+var safeCommitSHA = regexp.MustCompile(`^[A-Fa-f0-9]{7,64}$`)
+
+func safeSSHRepoPath(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		value = "."
+	}
+	if strings.ContainsAny(value, "\x00\r\n") {
+		return "", false
+	}
+	return value, true
+}
+
+func safeSSHHTTPURL(value string) bool {
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Host == "" || parsed.User != nil {
+		return false
+	}
+	return parsed.Scheme == "http" || parsed.Scheme == "https"
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 var mutationTargetPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.@:-]*$`)
