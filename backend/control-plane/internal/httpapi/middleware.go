@@ -15,6 +15,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"go.opentelemetry.io/otel/trace"
 )
 
 const maxRequestBodyBytes int64 = 2 << 20
@@ -264,6 +266,11 @@ func withRequestLogging(next http.Handler, metrics *httpMetrics, trustProxyHeade
 			"status":      recorder.status,
 			"duration_ms": duration.Milliseconds(),
 			"remote_ip":   clientIP(r, trustProxyHeaders),
+		}
+		spanContext := trace.SpanContextFromContext(r.Context())
+		if spanContext.IsValid() {
+			event["trace_id"] = spanContext.TraceID().String()
+			event["span_id"] = spanContext.SpanID().String()
 		}
 		if traceparent := strings.TrimSpace(r.Header.Get("traceparent")); traceparent != "" {
 			event["traceparent"] = traceparent
