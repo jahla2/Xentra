@@ -43,3 +43,19 @@ The metrics endpoint is `GET /internal/metrics` and requires `Authorization: Bea
 ## Legacy Runner transport
 
 The older inbound Runner transport remains available for migration, but production Compose sets `XENTRA_LEGACY_RUNNER_ENABLED=false` by default. Re-enable it only while migrating existing environments and provide its separate legacy mTLS client credentials.
+
+## OpenTelemetry tracing
+
+Tracing is optional. When `XENTRA_OTEL_ENDPOINT` is empty, Xentra creates trace spans locally but does not start an OTLP exporter.
+
+To use the bundled Collector:
+
+1. Set `XENTRA_OTEL_ENDPOINT=http://otel-collector:4318`.
+2. Start Compose with the observability profile:
+   `docker compose --env-file .env --profile observability -f docker-compose.prod.yml up -d --build`.
+3. The control plane and AI service export OTLP/HTTP protobuf traces to the Collector.
+4. Configure installed outbound Runners with an OTLP endpoint reachable from their network if Runner spans should be exported as part of the same distributed trace.
+
+The bundled Collector uses the debug exporter as a safe default validation backend. Replace the exporter in `infra/otel-collector.yaml` with your production backend (Tempo, Jaeger-compatible OTLP backend, Honeycomb, Datadog OTLP intake, etc.) while keeping the OTLP receiver and batch processor.
+
+Trace context uses W3C `traceparent` / `tracestate`. Xentra also persists that context with queued outbound Runner tasks so the Runner tool span continues the original investigation trace across the PostgreSQL queue.
