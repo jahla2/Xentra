@@ -32,7 +32,7 @@ func withAuthentication(next http.Handler, auth *application.AuthService) http.H
 }
 
 func isPublicRoute(r *http.Request) bool {
-	if r.Method == http.MethodGet && r.URL.Path == "/health" {
+	if r.Method == http.MethodGet && (r.URL.Path == "/health" || r.URL.Path == "/internal/metrics") {
 		return true
 	}
 	if r.Method == http.MethodPost && (r.URL.Path == "/api/auth/register" || r.URL.Path == "/api/auth/login") {

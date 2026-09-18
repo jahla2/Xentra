@@ -40,8 +40,13 @@ func NewRouter(environments *application.EnvironmentService, investigations *app
 	}
 
 	mux := http.NewServeMux()
+	cfg := runtimeConfigFromEnv()
+	metrics := newHTTPMetrics()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "service": "control-plane"})
+	})
+	mux.HandleFunc("GET /internal/metrics", func(w http.ResponseWriter, r *http.Request) {
+		metrics.ServeHTTP(w, r, cfg.metricsToken)
 	})
 
 	if h.auth != nil {
@@ -78,7 +83,7 @@ func NewRouter(environments *application.EnvironmentService, investigations *app
 		mux.HandleFunc("GET /api/audit", h.listAudit)
 	}
 
-	return withCORS(withAuthentication(mux, h.auth))
+	return withProductionMiddleware(withAuthentication(mux, h.auth), metrics, cfg)
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
@@ -373,15 +378,3 @@ func authErrorStatus(err error) int {
 	}
 }
 
-func withCORS(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
