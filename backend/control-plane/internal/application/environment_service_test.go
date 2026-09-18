@@ -28,14 +28,18 @@ func projectRepoForTest() *MemoryProjectRepository {
 
 func TestCreateRunnerEnvironmentDiscoversCapabilities(t *testing.T) {
 	repo := NewMemoryEnvironmentRepository()
-	discovery := fakeDiscoveryClient{domain.Discovery{OS: "linux", Hostname: "prod-01", Capabilities: []string{"docker", "systemd"}}}
+	discovery := fakeDiscoveryClient{domain.Discovery{
+		OS: "linux", Hostname: "prod-01", CPU: "8 cores",
+		Memory: "Mem: 16000 8000 4000", Disk: "/dev/sda1 100G 40G 60G 40% /",
+		Containers: []string{"api\tUp 2 minutes"}, Capabilities: []string{"docker", "systemd"},
+	}}
 	service := NewEnvironmentService(repo, projectRepoForTest(), discovery, nil)
 
 	env, err := service.Create(context.Background(), "org-a", CreateEnvironmentInput{ProjectID: "prj-1", Name: "Production", Type: "production", ConnectionType: "runner", RunnerURL: "http://runner:8090"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if env.ProjectID != "prj-1" || env.OrganizationID != "org-a" || env.ConnectionType != "runner" || env.Hostname != "prod-01" || len(env.Capabilities) != 2 {
+	if env.ProjectID != "prj-1" || env.OrganizationID != "org-a" || env.ConnectionType != "runner" || env.Hostname != "prod-01" || env.CPU != "8 cores" || env.Memory == "" || env.Disk == "" || len(env.Containers) != 1 || len(env.Capabilities) != 2 {
 		t.Fatalf("unexpected environment: %#v", env)
 	}
 }
