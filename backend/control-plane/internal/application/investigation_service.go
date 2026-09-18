@@ -16,13 +16,14 @@ type AIClient interface {
 }
 
 type InvestigationService struct {
-	repo  EnvironmentRepository
-	tools ToolClient
-	ai    AIClient
+	repo     EnvironmentRepository
+	tools    ToolClient
+	ai       AIClient
+	redactor *EvidenceRedactor
 }
 
 func NewInvestigationService(repo EnvironmentRepository, tools ToolClient, ai AIClient) *InvestigationService {
-	return &InvestigationService{repo: repo, tools: tools, ai: ai}
+	return &InvestigationService{repo: repo, tools: tools, ai: ai, redactor: NewEvidenceRedactor()}
 }
 
 func (s *InvestigationService) Investigate(ctx context.Context, organizationID, environmentID, question string) (domain.InvestigationResult, error) {
@@ -34,10 +35,16 @@ func (s *InvestigationService) Investigate(ctx context.Context, organizationID, 
 	if err != nil {
 		return domain.InvestigationResult{}, fmt.Errorf("collect evidence: %w", err)
 	}
-	result, err := s.ai.Investigate(ctx, domain.InvestigationRequest{Environment: env, Question: question, Evidence: evidence})
+
+	safeEvidence := s.redactor.RedactEvidence(evidence)
+	result, err := s.ai.Investigate(ctx, domain.InvestigationRequest{
+		Environment: env,
+		Question:    question,
+		Evidence:    safeEvidence,
+	})
 	if err != nil {
 		return domain.InvestigationResult{}, fmt.Errorf("investigate: %w", err)
 	}
-	result.Evidence = evidence
+	result.Evidence = safeEvidence
 	return result, nil
 }
