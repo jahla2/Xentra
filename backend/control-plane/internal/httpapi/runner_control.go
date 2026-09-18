@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/jahla2/Xentra/backend/control-plane/internal/application"
 	"github.com/jahla2/Xentra/backend/control-plane/internal/domain"
 )
 
@@ -78,4 +77,3 @@ func runnerToken(r *http.Request) string {
 	return strings.TrimSpace(value[7:])
 }
 
-var _ = application.ErrForbidden
