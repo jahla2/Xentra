@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jahla2/Xentra/backend/control-plane/internal/domain"
 )
@@ -45,7 +46,7 @@ func (s *InvestigationService) Investigate(ctx context.Context, organizationID, 
 	if err != nil {
 		return domain.InvestigationResult{}, fmt.Errorf("collect evidence: %w", err)
 	}
-	safeEvidence := s.redactor.RedactEvidence(evidence)
+	safeEvidence := s.redactor.RedactEvidence(normalizeEvidenceTiming(evidence))
 	availableTools := availableInvestigationTools(env)
 	seen := map[string]bool{}
 
@@ -80,14 +81,15 @@ func (s *InvestigationService) Investigate(ctx context.Context, organizationID, 
 			if err := validateInvestigationToolRequest(request, availableTools); err != nil {
 				safeEvidence = append(safeEvidence, domain.Evidence{
 					Source: "tool.request_rejected", Output: err.Error(), Success: false,
+					OccurredAt: time.Now().UTC(),
 				})
 				continue
 			}
 			item, toolErr := s.tools.ExecuteReadTool(ctx, env, request)
 			if toolErr != nil {
-				item = domain.Evidence{Source: request.Tool, Output: toolErr.Error(), Success: false}
+				item = domain.Evidence{Source: request.Tool, Output: toolErr.Error(), Success: false, OccurredAt: time.Now().UTC()}
 			}
-			safeEvidence = append(safeEvidence, s.redactor.RedactEvidence([]domain.Evidence{item})[0])
+			safeEvidence = append(safeEvidence, s.redactor.RedactEvidence(normalizeEvidenceTiming([]domain.Evidence{item}))[0])
 			executedAny = true
 		}
 		if !executedAny {
@@ -155,4 +157,18 @@ func toolRequestKey(request domain.ToolRequest) string {
 		parts = append(parts, key+"="+request.Arguments[key])
 	}
 	return strings.Join(parts, "|")
+}
+
+func normalizeEvidenceTiming(items []domain.Evidence) []domain.Evidence {
+	result := make([]domain.Evidence, len(items))
+	for index, item := range items {
+		if item.OccurredAt.IsZero() {
+			item.OccurredAt = time.Now().UTC()
+		}
+		if item.DurationMS < 0 {
+			item.DurationMS = 0
+		}
+		result[index] = item
+	}
+	return result
 }

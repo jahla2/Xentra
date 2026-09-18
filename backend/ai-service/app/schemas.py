@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -9,6 +10,8 @@ class Evidence(BaseModel):
     source: str
     output: str
     success: bool
+    occurredAt: datetime | None = None
+    durationMs: int = Field(default=0, ge=0)
 
 
 class Environment(BaseModel):

@@ -110,12 +110,15 @@ func (c *RunnerClient) ExecuteReadTool(ctx context.Context, env domain.Environme
 	if !runnerReadTools[request.Tool] {
 		return domain.Evidence{}, errors.New("tool is not an allowlisted read-only Runner tool")
 	}
+	startedAt := time.Now().UTC()
 	result, err := c.executeTool(ctx, env, request.Tool, request.Arguments)
+	durationMS := time.Since(startedAt).Milliseconds()
 	if err != nil {
 		return domain.Evidence{}, err
 	}
 	return domain.Evidence{
 		Source: toolEvidenceSource(request), Success: result.Success, Output: result.Output,
+		OccurredAt: startedAt, DurationMS: durationMS,
 	}, nil
 }
 

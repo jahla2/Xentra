@@ -1,5 +1,7 @@
 package domain
 
+import "time"
+
 type Environment struct {
 	ID                    string   `json:"id"`
 	OrganizationID        string   `json:"-"`
@@ -36,9 +38,11 @@ type CredentialRecord struct {
 }
 
 type Evidence struct {
-	Source  string `json:"source"`
-	Output  string `json:"output"`
-	Success bool   `json:"success"`
+	Source     string    `json:"source"`
+	Output     string    `json:"output"`
+	Success    bool      `json:"success"`
+	OccurredAt time.Time `json:"occurredAt"`
+	DurationMS int64     `json:"durationMs"`
 }
 
 type ToolRequest struct {
