@@ -1,4 +1,5 @@
 import {FormEvent,useEffect,useMemo,useState} from 'react';
+import {Link} from 'react-router-dom';
 import {api,CreateEnvironmentInput} from '../api';
 import {useWorkspace} from '../app/WorkspaceProvider';
 
@@ -39,13 +40,13 @@ export function EnvironmentsPage(){
  return <section className="grid workbench">
   <div className="panel">
    <div className="panel-title"><h2>Connected environments</h2><span>{environments.length} total</span></div>
-   {environments.map(env=><button className={`env ${selectedEnvironmentId===env.id?'selected':''}`} key={env.id} onClick={()=>setSelectedEnvironmentId(env.id)}>
+   {environments.map(env=><Link className={`env ${selectedEnvironmentId===env.id?'selected':''}`} to={`/environments/${env.id}`} key={env.id} onClick={()=>setSelectedEnvironmentId(env.id)}>
     <span className="dot"/><div>
      <b>{env.name}</b>
      <small>{env.hostname||env.sshHost||env.runnerUrl||'Waiting for Runner check-in'}</small>
-     <em>{env.type} · {env.connectionType} · {env.os||'unknown OS'}</em>
+     <em>{env.type} · {env.connectionType} · {env.os||'unknown OS'} · {env.cpu||'CPU pending'}</em>
     </div>
-   </button>)}
+   </Link>)}
    {!environments.length&&<p className="muted">No environments connected yet.</p>}
   </div>
 
