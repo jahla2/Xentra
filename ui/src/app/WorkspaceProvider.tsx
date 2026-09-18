@@ -38,6 +38,7 @@ type WorkspaceContextValue={
  connectGitHub:(owner:string,repo:string,authMode:GitHubAuthMode,accessToken:string)=>Promise<void>;
  proposeAction:(action:string,target:string,reason:string)=>Promise<void>;
  approveAction:()=>Promise<void>;
+ rejectAction:()=>Promise<void>;
 };
 
 const WorkspaceContext=createContext<WorkspaceContextValue|null>(null);
@@ -215,6 +216,11 @@ export function WorkspaceProvider({children}:{children:React.ReactNode}){
   await run(()=>api.approveAction(action.id),setAction);
  }
 
+ async function rejectAction(){
+  if(!action)return;
+  await run(()=>api.rejectAction(action.id),setAction);
+ }
+
  const value=useMemo<WorkspaceContextValue>(()=>({
   principal,authReady,loading,error,projects,environments,incidents,audit,
   selectedEnvironmentId,question,investigation,latestIncident,action,githubSetup,runnerEnrollment,
@@ -224,7 +230,7 @@ export function WorkspaceProvider({children}:{children:React.ReactNode}){
   dismissGitHubSetup:()=>setGitHubSetup(null),
   dismissRunnerEnrollment:()=>setRunnerEnrollment(null),
   refresh,authenticate,logout,createMember,createProject,createEnvironment,createRunnerEnrollment,investigate,
-  createIncident,connectGitHub,proposeAction,approveAction,
+  createIncident,connectGitHub,proposeAction,approveAction,rejectAction,
  }),[
   principal,authReady,loading,error,projects,environments,incidents,audit,
   selectedEnvironmentId,question,investigation,latestIncident,action,githubSetup,runnerEnrollment,

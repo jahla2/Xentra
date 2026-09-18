@@ -86,6 +86,7 @@ func NewRouter(environments *application.EnvironmentService, investigations *app
 	if h.actions != nil {
 		mux.HandleFunc("POST /api/actions", h.proposeAction)
 		mux.HandleFunc("POST /api/actions/{id}/approve", h.approveAction)
+		mux.HandleFunc("POST /api/actions/{id}/reject", h.rejectAction)
 		mux.HandleFunc("GET /api/audit", h.listAudit)
 	}
 
@@ -350,6 +351,19 @@ func (h *Handler) approveAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	action, err := h.actions.Approve(r.Context(), principal.OrganizationID, r.PathValue("id"), principal.Email)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, action)
+}
+
+func (h *Handler) rejectAction(w http.ResponseWriter, r *http.Request) {
+	principal, ok := requireOwner(w, r)
+	if !ok {
+		return
+	}
+	action, err := h.actions.Reject(r.Context(), principal.OrganizationID, r.PathValue("id"), principal.Email)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return

@@ -1,0 +1,1 @@
+ALTER TABLE actions ADD COLUMN IF NOT EXISTS rejected_by TEXT;

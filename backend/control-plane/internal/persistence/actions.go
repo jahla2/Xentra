@@ -20,10 +20,10 @@ func (r *PostgresActionRepository) Save(ctx context.Context, item domain.ActionR
 	if err != nil {
 		return err
 	}
-	query := "INSERT INTO actions(id,organization_id,incident_id,environment_id,action,target,reason,status,approved_by,result,verification,created_at,executed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT(id) DO UPDATE SET organization_id=EXCLUDED.organization_id,status=EXCLUDED.status,approved_by=EXCLUDED.approved_by,result=EXCLUDED.result,verification=EXCLUDED.verification,executed_at=EXCLUDED.executed_at"
+	query := "INSERT INTO actions(id,organization_id,incident_id,environment_id,action,target,reason,status,approved_by,rejected_by,result,verification,created_at,executed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT(id) DO UPDATE SET organization_id=EXCLUDED.organization_id,status=EXCLUDED.status,approved_by=EXCLUDED.approved_by,rejected_by=EXCLUDED.rejected_by,result=EXCLUDED.result,verification=EXCLUDED.verification,executed_at=EXCLUDED.executed_at"
 	_, err = r.db.ExecContext(ctx, query,
 		item.ID, item.OrganizationID, nullable(item.IncidentID), item.EnvironmentID, item.Action, item.Target,
-		item.Reason, item.Status, nullable(item.ApprovedBy), item.Result, verification, item.CreatedAt, item.ExecutedAt,
+		item.Reason, item.Status, nullable(item.ApprovedBy), nullable(item.RejectedBy), item.Result, verification, item.CreatedAt, item.ExecutedAt,
 	)
 	return err
 }
@@ -31,10 +31,10 @@ func (r *PostgresActionRepository) Save(ctx context.Context, item domain.ActionR
 func (r *PostgresActionRepository) Get(ctx context.Context, organizationID, id string) (domain.ActionRequest, error) {
 	var item domain.ActionRequest
 	var verification []byte
-	query := "SELECT id,organization_id,COALESCE(incident_id,''),environment_id,action,target,reason,status,COALESCE(approved_by,''),result,verification,created_at,executed_at FROM actions WHERE organization_id=$1 AND id=$2"
+	query := "SELECT id,organization_id,COALESCE(incident_id,''),environment_id,action,target,reason,status,COALESCE(approved_by,''),COALESCE(rejected_by,''),result,verification,created_at,executed_at FROM actions WHERE organization_id=$1 AND id=$2"
 	err := r.db.QueryRowContext(ctx, query, organizationID, id).Scan(
 		&item.ID, &item.OrganizationID, &item.IncidentID, &item.EnvironmentID, &item.Action, &item.Target,
-		&item.Reason, &item.Status, &item.ApprovedBy, &item.Result, &verification, &item.CreatedAt, &item.ExecutedAt,
+		&item.Reason, &item.Status, &item.ApprovedBy, &item.RejectedBy, &item.Result, &verification, &item.CreatedAt, &item.ExecutedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.ActionRequest{}, errors.New("action not found")

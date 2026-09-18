@@ -302,6 +302,16 @@ INCIDENT=$(request POST /api/incidents "$OWNER_TOKEN" "$INVESTIGATION_PAYLOAD")
 INCIDENT_ID=$(printf '%s' "$INCIDENT" | jq -r '.id')
 test -n "$INCIDENT_ID"
 
+echo "Proposing and rejecting typed Docker restart"
+REJECT_PAYLOAD=$(jq -n --arg inc "$INCIDENT_ID" --arg env "$OUTBOUND_ENV_ID" '{incidentId:$inc,environmentId:$env,action:"docker.restart",target:"xentra-ssh-fixture",reason:"rejection verification"}')
+REJECT_ACTION=$(request POST /api/actions "$OWNER_TOKEN" "$REJECT_PAYLOAD")
+REJECT_ACTION_ID=$(printf '%s' "$REJECT_ACTION" | jq -r '.id')
+test "$(printf '%s' "$REJECT_ACTION" | jq -r '.status')" = "pending_approval"
+REJECTED=$(request POST "/api/actions/$REJECT_ACTION_ID/reject" "$OWNER_TOKEN" "")
+test "$(printf '%s' "$REJECTED" | jq -r '.status')" = "rejected"
+test "$(printf '%s' "$REJECTED" | jq -r '.rejectedBy')" = "owner@example.com"
+test "$(docker inspect -f '{{.State.Running}}' xentra-ssh-fixture)" = "true"
+
 echo "Proposing and approving typed Docker restart"
 ACTION_PAYLOAD=$(jq -n --arg inc "$INCIDENT_ID" --arg env "$OUTBOUND_ENV_ID" '{incidentId:$inc,environmentId:$env,action:"docker.restart",target:"xentra-ssh-fixture",reason:"integration verification"}')
 ACTION=$(request POST /api/actions "$OWNER_TOKEN" "$ACTION_PAYLOAD")
@@ -314,6 +324,7 @@ test "$(printf '%s' "$APPROVED" | jq -r '.verification.healthy')" = "true"
 test "$(printf '%s' "$APPROVED" | jq -r '.approvedBy')" = "owner@example.com"
 
 AUDIT=$(request GET /api/audit "$OWNER_TOKEN" "")
+test "$(printf '%s' "$AUDIT" | jq '[.[] | select(.eventType=="action_rejected")] | length')" -ge 1
 test "$(printf '%s' "$AUDIT" | jq '[.[] | select(.eventType=="action_approved")] | length')" -ge 1
 test "$(printf '%s' "$AUDIT" | jq '[.[] | select(.eventType=="action_executed")] | length')" -ge 1
 

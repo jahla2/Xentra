@@ -18,6 +18,7 @@ type ActionRequest struct {
 	Reason         string             `json:"reason"`
 	Status         string             `json:"status"`
 	ApprovedBy     string             `json:"approvedBy,omitempty"`
+	RejectedBy     string             `json:"rejectedBy,omitempty"`
 	Result         string             `json:"result,omitempty"`
 	Verification   VerificationResult `json:"verification"`
 	CreatedAt      time.Time          `json:"createdAt"`
