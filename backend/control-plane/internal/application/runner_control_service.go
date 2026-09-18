@@ -52,6 +52,13 @@ func (s *RunnerControlService) CreateEnrollment(
 	ctx context.Context,
 	organizationID, projectID, name, environmentType string,
 ) (domain.RunnerEnrollment, error) {
+	return s.CreateEnrollmentWithHealthURL(ctx, organizationID, projectID, name, environmentType, "")
+}
+
+func (s *RunnerControlService) CreateEnrollmentWithHealthURL(
+	ctx context.Context,
+	organizationID, projectID, name, environmentType, healthURL string,
+) (domain.RunnerEnrollment, error) {
 	if organizationID == "" || projectID == "" || name == "" {
 		return domain.RunnerEnrollment{}, errors.New("organization, projectId and name are required")
 	}
@@ -77,9 +84,12 @@ func (s *RunnerControlService) CreateEnrollment(
 	if environmentType == "" {
 		environmentType = "development"
 	}
+	if healthURL != "" && !validHealthURL(healthURL) {
+		return domain.RunnerEnrollment{}, errors.New("healthUrl must be a valid http/https URL without embedded credentials")
+	}
 	env := domain.Environment{
 		ID: environmentID, OrganizationID: organizationID, ProjectID: projectID,
-		Name: name, Type: environmentType, ConnectionType: "runner_outbound",
+		Name: name, Type: environmentType, ConnectionType: "runner_outbound", HealthURL: healthURL,
 		Containers: []string{}, Capabilities: []string{},
 	}
 	if err := s.environments.Save(ctx, env); err != nil {
