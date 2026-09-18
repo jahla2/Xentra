@@ -50,6 +50,12 @@ func (c *SSHClient) Discover(ctx context.Context, env domain.Environment) (domai
 }
 
 func (c *SSHClient) Collect(ctx context.Context, env domain.Environment) ([]domain.Evidence, error) {
+	client, err := c.connect(ctx, env)
+	if err != nil {
+		return nil, err
+	}
+	defer client.Close()
+
 	requests := []domain.ToolRequest{
 		{Tool: "system.info", Arguments: map[string]string{}},
 		{Tool: "system.disk", Arguments: map[string]string{}},
@@ -59,11 +65,15 @@ func (c *SSHClient) Collect(ctx context.Context, env domain.Environment) ([]doma
 	}
 	evidence := make([]domain.Evidence, 0, len(requests))
 	for _, request := range requests {
-		item, err := c.ExecuteReadTool(ctx, env, request)
-		if err != nil {
-			item = domain.Evidence{Source: request.Tool, Success: false, Output: err.Error()}
+		command, commandErr := sshReadToolCommand(request)
+		if commandErr != nil {
+			evidence = append(evidence, domain.Evidence{Source: request.Tool, Success: false, Output: commandErr.Error()})
+			continue
 		}
-		evidence = append(evidence, item)
+		output, runErr := runSSH(client, command)
+		evidence = append(evidence, domain.Evidence{
+			Source: toolEvidenceSource(request), Success: runErr == nil, Output: outputOrError(output, runErr),
+		})
 	}
 	return evidence, nil
 }
