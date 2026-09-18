@@ -16,15 +16,15 @@ func NewPostgresIntegrationRepository(db *sql.DB) *PostgresIntegrationRepository
 }
 
 func (r *PostgresIntegrationRepository) Save(ctx context.Context, item domain.RepositoryIntegration) error {
-	query := "INSERT INTO repository_integrations(id,organization_id,environment_id,provider,owner_name,repo_name,credential_id,webhook_secret_credential_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(environment_id) DO UPDATE SET organization_id=EXCLUDED.organization_id,provider=EXCLUDED.provider,owner_name=EXCLUDED.owner_name,repo_name=EXCLUDED.repo_name,credential_id=EXCLUDED.credential_id,webhook_secret_credential_id=EXCLUDED.webhook_secret_credential_id"
-	_, err := r.db.ExecContext(ctx, query, item.ID, item.OrganizationID, item.EnvironmentID, item.Provider, item.Owner, item.Repo, item.CredentialID, nullable(item.WebhookSecretCredentialID))
+	query := "INSERT INTO repository_integrations(id,organization_id,environment_id,provider,owner_name,repo_name,credential_id,webhook_secret_credential_id,auth_mode,installation_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(environment_id) DO UPDATE SET organization_id=EXCLUDED.organization_id,provider=EXCLUDED.provider,owner_name=EXCLUDED.owner_name,repo_name=EXCLUDED.repo_name,credential_id=EXCLUDED.credential_id,webhook_secret_credential_id=EXCLUDED.webhook_secret_credential_id,auth_mode=EXCLUDED.auth_mode,installation_id=EXCLUDED.installation_id"
+	_, err := r.db.ExecContext(ctx, query, item.ID, item.OrganizationID, item.EnvironmentID, item.Provider, item.Owner, item.Repo, nullable(item.CredentialID), nullable(item.WebhookSecretCredentialID), item.AuthMode, nullableInt64(item.InstallationID))
 	return err
 }
 
 func (r *PostgresIntegrationRepository) FindByEnvironment(ctx context.Context, organizationID, id string) (domain.RepositoryIntegration, error) {
 	var item domain.RepositoryIntegration
-	query := "SELECT id,organization_id,environment_id,provider,owner_name,repo_name,credential_id,COALESCE(webhook_secret_credential_id,'') FROM repository_integrations WHERE organization_id=$1 AND environment_id=$2"
-	err := r.db.QueryRowContext(ctx, query, organizationID, id).Scan(&item.ID, &item.OrganizationID, &item.EnvironmentID, &item.Provider, &item.Owner, &item.Repo, &item.CredentialID, &item.WebhookSecretCredentialID)
+	query := "SELECT id,organization_id,environment_id,provider,owner_name,repo_name,COALESCE(credential_id,''),COALESCE(webhook_secret_credential_id,''),COALESCE(auth_mode,'token'),COALESCE(installation_id,0) FROM repository_integrations WHERE organization_id=$1 AND environment_id=$2"
+	err := r.db.QueryRowContext(ctx, query, organizationID, id).Scan(&item.ID, &item.OrganizationID, &item.EnvironmentID, &item.Provider, &item.Owner, &item.Repo, &item.CredentialID, &item.WebhookSecretCredentialID, &item.AuthMode, &item.InstallationID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.RepositoryIntegration{}, errors.New("repository integration not found")
 	}
@@ -33,10 +33,11 @@ func (r *PostgresIntegrationRepository) FindByEnvironment(ctx context.Context, o
 
 func (r *PostgresIntegrationRepository) FindByID(ctx context.Context, id string) (domain.RepositoryIntegration, error) {
 	var item domain.RepositoryIntegration
-	query := "SELECT id,organization_id,environment_id,provider,owner_name,repo_name,credential_id,COALESCE(webhook_secret_credential_id,'') FROM repository_integrations WHERE id=$1"
+	query := "SELECT id,organization_id,environment_id,provider,owner_name,repo_name,COALESCE(credential_id,''),COALESCE(webhook_secret_credential_id,''),COALESCE(auth_mode,'token'),COALESCE(installation_id,0) FROM repository_integrations WHERE id=$1"
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&item.ID, &item.OrganizationID, &item.EnvironmentID, &item.Provider,
 		&item.Owner, &item.Repo, &item.CredentialID, &item.WebhookSecretCredentialID,
+		&item.AuthMode, &item.InstallationID,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.RepositoryIntegration{}, errors.New("repository integration not found")
@@ -117,4 +118,11 @@ func (r *PostgresIncidentRepository) List(ctx context.Context, organizationID st
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func nullableInt64(value int64) any {
+	if value == 0 {
+		return nil
+	}
+	return value
 }

@@ -54,12 +54,21 @@ func main() {
 	sshClient := clients.NewSSHClient(credentialService)
 	connections := clients.NewConnectionClient(runnerClient, sshClient)
 	aiClient := clients.NewAIHTTPClient(envOrDefault("XENTRA_AI_URL", "http://localhost:8000"))
-	githubClient := clients.NewGitHubClient(credentialService)
+	githubAuth, err := clients.NewGitHubAuthProvider(
+		credentialService,
+		os.Getenv("XENTRA_GITHUB_APP_ID"),
+		githubPrivateKey(),
+		envOrDefault("XENTRA_GITHUB_API_URL", "https://api.github.com"),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+	githubClient := clients.NewGitHubClient(githubAuth)
 
 	projectService := application.NewProjectService(stores.projects)
 	environmentService := application.NewEnvironmentService(stores.environments, stores.projects, connections, credentialService)
 	investigationService := application.NewInvestigationService(stores.environments, connections, aiClient)
-	integrationService := application.NewIntegrationService(stores.integrations, credentialService, stores.environments)
+	integrationService := application.NewIntegrationService(stores.integrations, credentialService, stores.environments, githubAuth)
 	incidentService := application.NewIncidentService(stores.incidents, stores.integrations, investigationService, githubClient)
 	webhookService := application.NewGitHubWebhookService(stores.integrations, credentialService, stores.webhookDeliveries, incidentService)
 	actionService := application.NewActionService(stores.actions, stores.audit, stores.environments, stores.incidents, connections)
@@ -154,4 +163,18 @@ func envOrDefault(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func githubPrivateKey() string {
+	if value := os.Getenv("XENTRA_GITHUB_APP_PRIVATE_KEY"); value != "" {
+		return value
+	}
+	if path := os.Getenv("XENTRA_GITHUB_APP_PRIVATE_KEY_FILE"); path != "" {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			log.Fatalf("read XENTRA_GITHUB_APP_PRIVATE_KEY_FILE: %v", err)
+		}
+		return string(raw)
+	}
+	return ""
 }

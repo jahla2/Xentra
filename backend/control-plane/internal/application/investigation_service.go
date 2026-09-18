@@ -38,6 +38,10 @@ func NewInvestigationService(repo EnvironmentRepository, tools ToolClient, ai AI
 }
 
 func (s *InvestigationService) Investigate(ctx context.Context, organizationID, environmentID, question string) (domain.InvestigationResult, error) {
+	return s.InvestigateWithEvidence(ctx, organizationID, environmentID, question, nil)
+}
+
+func (s *InvestigationService) InvestigateWithEvidence(ctx context.Context, organizationID, environmentID, question string, contextualEvidence []domain.Evidence) (domain.InvestigationResult, error) {
 	env, err := s.repo.Get(ctx, organizationID, environmentID)
 	if err != nil {
 		return domain.InvestigationResult{}, err
@@ -46,6 +50,7 @@ func (s *InvestigationService) Investigate(ctx context.Context, organizationID, 
 	if err != nil {
 		return domain.InvestigationResult{}, fmt.Errorf("collect evidence: %w", err)
 	}
+	evidence = append(evidence, contextualEvidence...)
 	safeEvidence := s.redactor.RedactEvidence(normalizeEvidenceTiming(evidence))
 	availableTools := availableInvestigationTools(env)
 	seen := map[string]bool{}
