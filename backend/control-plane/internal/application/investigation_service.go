@@ -29,7 +29,7 @@ type InvestigationLimits struct {
 func defaultInvestigationLimits() InvestigationLimits {
 	return InvestigationLimits{
 		Timeout:          time.Duration(investigationEnvInt("XENTRA_INVESTIGATION_TIMEOUT_SECONDS", 45, 5, 120)) * time.Second,
-		MaxToolCalls:     investigationEnvInt("XENTRA_INVESTIGATION_MAX_TOOL_CALLS", 8, 1, 24),
+		MaxToolCalls:     investigationEnvInt("XENTRA_INVESTIGATION_MAX_TOOL_CALLS", 8, 5, 24),
 		MaxEvidenceItems: investigationEnvInt("XENTRA_INVESTIGATION_MAX_EVIDENCE_ITEMS", 48, 8, 128),
 		MaxEvidenceBytes: investigationEnvInt("XENTRA_INVESTIGATION_MAX_EVIDENCE_BYTES", 96*1024, 16*1024, 512*1024),
 		MaxQuestionChars: investigationEnvInt("XENTRA_INVESTIGATION_MAX_QUESTION_CHARS", 4000, 256, 16000),
@@ -128,6 +128,9 @@ func (s *InvestigationService) investigate(
 	if err != nil {
 		return domain.InvestigationResult{}, fmt.Errorf("collect evidence: %w", err)
 	}
+	// Baseline collection always attempts five typed diagnostics:
+	// system.info, system.disk, system.cpu, system.memory, and docker.list.
+	toolCalls = 5
 	evidence = append(evidence, contextualEvidence...)
 
 	if s.memory != nil {
@@ -271,7 +274,7 @@ func (s *InvestigationService) boundEvidence(items []domain.Evidence) []domain.E
 	}
 	maxItems := s.limits.MaxEvidenceItems
 	maxBytes := s.limits.MaxEvidenceBytes
-	perItemMax := 8 * 1024
+	perItemMax := 8*1024 - len("\n[truncated]")
 	if perItemMax > maxBytes {
 		perItemMax = maxBytes
 	}
