@@ -319,14 +319,29 @@ ACTION_ID=$(printf '%s' "$ACTION" | jq -r '.id')
 test "$(printf '%s' "$ACTION" | jq -r '.status')" = "pending_approval"
 
 APPROVED=$(request POST "/api/actions/$ACTION_ID/approve" "$OWNER_TOKEN" "")
-test "$(printf '%s' "$APPROVED" | jq -r '.status')" = "completed"
-test "$(printf '%s' "$APPROVED" | jq -r '.verification.healthy')" = "true"
+test "$(printf '%s' "$APPROVED" | jq -r '.status')" = "approved"
+test "$(printf '%s' "$APPROVED" | jq -r '.executionStage')" = "queued"
 test "$(printf '%s' "$APPROVED" | jq -r '.approvedBy')" = "owner@example.com"
+
+echo "Polling persisted live execution state"
+CURRENT_ACTION="$APPROVED"
+for _ in $(seq 1 80); do
+  CURRENT_ACTION=$(request GET "/api/actions/$ACTION_ID" "$OWNER_TOKEN" "")
+  ACTION_STATUS=$(printf '%s' "$CURRENT_ACTION" | jq -r '.status')
+  if [ "$ACTION_STATUS" = "completed" ] || [ "$ACTION_STATUS" = "failed" ] || [ "$ACTION_STATUS" = "verification_failed" ]; then
+    break
+  fi
+  sleep 0.25
+done
+test "$(printf '%s' "$CURRENT_ACTION" | jq -r '.status')" = "completed"
+test "$(printf '%s' "$CURRENT_ACTION" | jq -r '.executionStage')" = "completed"
+test "$(printf '%s' "$CURRENT_ACTION" | jq -r '.verification.healthy')" = "true"
+test "$(printf '%s' "$CURRENT_ACTION" | jq -r '.durationMs')" -ge 0
 
 AUDIT=$(request GET /api/audit "$OWNER_TOKEN" "")
 test "$(printf '%s' "$AUDIT" | jq '[.[] | select(.eventType=="action_rejected")] | length')" -ge 1
 test "$(printf '%s' "$AUDIT" | jq '[.[] | select(.eventType=="action_approved")] | length')" -ge 1
-test "$(printf '%s' "$AUDIT" | jq '[.[] | select(.eventType=="action_executed")] | length')" -ge 1
+test "$(printf '%s' "$AUDIT" | jq '[.[] | select(.eventType=="action_executed" and .tool=="docker.restart" and .target=="xentra-ssh-fixture" and .approval=="approved")] | length')" -ge 1
 
 echo "Creating member and checking RBAC"
 MEMBER_PAYLOAD='{"email":"member@example.com","password":"another-secure-password"}'
