@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/jahla2/Xentra/backend/control-plane/internal/application"
+	"github.com/jahla2/Xentra/backend/control-plane/internal/domain"
 )
 
 type Services struct {
