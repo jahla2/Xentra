@@ -234,6 +234,15 @@ func (r *responseRecorder) Write(data []byte) (int, error) {
 	return r.ResponseWriter.Write(data)
 }
 
+func (r *responseRecorder) Flush() {
+	if r.status == 0 {
+		r.status = http.StatusOK
+	}
+	if flusher, ok := r.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
 func withRequestLogging(next http.Handler, metrics *httpMetrics, trustProxyHeaders bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestID := strings.TrimSpace(r.Header.Get("X-Request-ID"))
