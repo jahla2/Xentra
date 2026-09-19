@@ -74,15 +74,9 @@ func (c *SSMClient) Collect(ctx context.Context, env domain.Environment) ([]doma
 		{Tool: "system.memory", Arguments: map[string]string{}},
 		{Tool: "docker.list", Arguments: map[string]string{}},
 	}
-	evidence := make([]domain.Evidence, 0, len(requests))
-	for _, request := range requests {
-		item, err := c.ExecuteReadTool(ctx, env, request)
-		if err != nil {
-			item = domain.Evidence{Source: request.Tool, Output: err.Error(), Success: false, OccurredAt: time.Now().UTC()}
-		}
-		evidence = append(evidence, item)
-	}
-	return evidence, nil
+	return collectEvidenceParallel(ctx, requests, func(ctx context.Context, request domain.ToolRequest) (domain.Evidence, error) {
+		return c.ExecuteReadTool(ctx, env, request)
+	}), nil
 }
 
 func (c *SSMClient) ExecuteReadTool(ctx context.Context, env domain.Environment, request domain.ToolRequest) (domain.Evidence, error) {
