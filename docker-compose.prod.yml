@@ -28,6 +28,11 @@ services:
     build:
       context: ./backend/ai-service
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
     environment:
       XENTRA_LLM_BASE_URL: ${XENTRA_LLM_BASE_URL:-https://api.openai.com/v1}
       XENTRA_LLM_API_KEY: ${XENTRA_LLM_API_KEY:-}
@@ -48,6 +53,11 @@ services:
     build:
       context: ./backend/control-plane
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       postgres:
         condition: service_healthy
@@ -69,6 +79,10 @@ services:
       XENTRA_GITHUB_APP_ID: ${XENTRA_GITHUB_APP_ID:-}
       XENTRA_GITHUB_APP_PRIVATE_KEY_FILE: /run/secrets/github_app_private_key.pem
       XENTRA_GITHUB_API_URL: ${XENTRA_GITHUB_API_URL:-https://api.github.com}
+      # AWS SDK default credential chain. Prefer IAM roles in production; these are optional local/self-hosted fallbacks.
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
       XENTRA_LEGACY_RUNNER_ENABLED: "false"
       XENTRA_RUNNER_CONTROL_ADDR: ${XENTRA_RUNNER_CONTROL_ADDR:-:8443}
       XENTRA_RUNNER_CONTROL_TLS_CERT: /run/secrets/runner_control_server_cert.pem
@@ -95,6 +109,8 @@ services:
         VITE_XENTRA_API_URL: ""
         VITE_XENTRA_RUNNER_CONTROL_URL: ${XENTRA_PUBLIC_RUNNER_CONTROL_URL}
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     depends_on: [control-plane]
     ports:
       - "8088:80"
