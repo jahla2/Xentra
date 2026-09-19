@@ -66,8 +66,30 @@ func TestActionEndpointRequiresOwnerApprovalThenExecutes(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&approved); err != nil {
 		t.Fatal(err)
 	}
-	if approved.Status != "completed" || approved.ApprovedBy != "owner@example.com" || !approved.Verification.Healthy {
+	if approved.Status != "approved" || approved.ExecutionStage != "queued" || approved.ApprovedBy != "owner@example.com" {
 		t.Fatalf("unexpected approved action: %#v", approved)
+	}
+
+	var completed domain.ActionRequest
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		req = httptest.NewRequest(http.MethodGet, "/api/actions/"+proposed.ID, nil)
+		req.Header.Set("Authorization", "Bearer "+owner.Token)
+		rec = httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("get action status=%d body=%s", rec.Code, rec.Body.String())
+		}
+		if err := json.NewDecoder(rec.Body).Decode(&completed); err != nil {
+			t.Fatal(err)
+		}
+		if completed.Status == "completed" {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if completed.Status != "completed" || completed.ExecutionStage != "completed" || !completed.Verification.Healthy {
+		t.Fatalf("unexpected completed action: %#v", completed)
 	}
 }
 
