@@ -4,7 +4,7 @@ import {useWorkspace} from '../app/WorkspaceProvider';
 export function AskPage(){
  const{
   environments,selectedEnvironmentId,setSelectedEnvironmentId,
-  question,setQuestion,investigation,loading,investigate,createIncident,
+  question,setQuestion,investigation,investigationProgress,loading,investigate,createIncident,
  }=useWorkspace();
 
  async function submit(event:FormEvent){
@@ -25,7 +25,17 @@ export function AskPage(){
    </form>
   </div>
   <div className="panel">
-   <div className="panel-title"><h2>Finding</h2><span>{investigation?'Current result':'Waiting for investigation'}</span></div>
+   <div className="panel-title"><h2>Finding</h2><span>{investigation?'Current result':loading?'Live investigation':'Waiting for investigation'}</span></div>
+   {investigationProgress.length>0&&<details open={loading}>
+    <summary>Live progress ({investigationProgress.length})</summary>
+    {investigationProgress.map((event,index)=><div className="audit-row" key={index}>
+     <b>{event.stage}</b>
+     <span>{event.elapsedMs} ms</span>
+     <span>{event.toolCalls} tool calls · {event.evidenceCount} evidence</span>
+     <p>{event.message}</p>
+     {event.evidence&&<pre>{event.evidence.output}</pre>}
+    </div>)}
+   </details>}
    {investigation
     ?<div className="finding">
       <div className="confidence">{investigation.confidence} confidence</div>
