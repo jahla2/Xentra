@@ -1,7 +1,9 @@
 import {FormEvent,useState} from 'react';
+import {Link,useNavigate} from 'react-router-dom';
 import {useWorkspace} from '../app/WorkspaceProvider';
 
 export function ApprovalsPage(){
+ const navigate=useNavigate();
  const{
   principal,environments,selectedEnvironmentId,setSelectedEnvironmentId,
   latestIncident,action,isOwner,loading,proposeAction,approveAction,rejectAction,
@@ -39,9 +41,10 @@ export function ApprovalsPage(){
       <p>{action.reason}</p>
       {action.status==='pending_approval'&&isOwner&&<div className="quick-links">
        <button className="nav" disabled={loading} onClick={()=>void rejectAction()}>Reject</button>
-       <button className="primary" disabled={loading} onClick={()=>void approveAction()}>Approve & Run as {principal?.email}</button>
+       <button className="primary" disabled={loading} onClick={()=>void (async()=>{const id=action.id;await approveAction();navigate('/executions/'+id)})()}>Approve & Run as {principal?.email}</button>
       </div>}
       {action.status==='rejected'&&<p>Rejected by {action.rejectedBy||'owner'}.</p>}
+      {action.status!=='pending_approval'&&action.status!=='rejected'&&<p><Link to={'/executions/'+action.id}>Open live execution</Link></p>}
       {action.verification?.summary&&<p>Verification: {action.verification.summary}</p>}
      </div>
     :<p className="muted">No remediation proposal is active in this session.</p>}
