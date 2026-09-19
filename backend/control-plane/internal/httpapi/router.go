@@ -85,6 +85,7 @@ func NewRouter(environments *application.EnvironmentService, investigations *app
 	}
 	if h.actions != nil {
 		mux.HandleFunc("POST /api/actions", h.proposeAction)
+		mux.HandleFunc("GET /api/actions/{id}", h.getAction)
 		mux.HandleFunc("POST /api/actions/{id}/approve", h.approveAction)
 		mux.HandleFunc("POST /api/actions/{id}/reject", h.rejectAction)
 		mux.HandleFunc("GET /api/audit", h.listAudit)
@@ -343,6 +344,20 @@ func (h *Handler) proposeAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, action)
+}
+
+func (h *Handler) getAction(w http.ResponseWriter, r *http.Request) {
+	principal, ok := principalFromRequest(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		return
+	}
+	action, err := h.actions.Get(r.Context(), principal.OrganizationID, r.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, action)
 }
 
 func (h *Handler) approveAction(w http.ResponseWriter, r *http.Request) {
