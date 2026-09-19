@@ -69,12 +69,12 @@ func (s *ActionService) Propose(ctx context.Context, organizationID, incidentID,
 	}
 	item := domain.ActionRequest{
 		ID: id, OrganizationID: organizationID, IncidentID: incidentID, EnvironmentID: environmentID,
-		Action: action, Target: target, Reason: reason, Status: "pending_approval", CreatedAt: time.Now().UTC(),
+		Action: action, Target: target, Reason: reason, Status: "pending_approval", ExecutionStage: "awaiting_approval", CreatedAt: time.Now().UTC(),
 	}
 	if err := s.actions.Save(ctx, item); err != nil {
 		return domain.ActionRequest{}, err
 	}
-	_ = s.appendAudit(ctx, organizationID, environmentID, "xentra-ai", "action_proposed", action+" "+target, true)
+	_ = s.appendActionAudit(ctx, item, "xentra-ai", "action_proposed", action+" "+target, true, "pending", reason, 0)
 	return item, nil
 }
 
@@ -95,47 +95,88 @@ func (s *ActionService) Approve(ctx context.Context, organizationID, id, approve
 	}
 
 	item.Status = "approved"
+	item.ExecutionStage = "queued"
 	item.ApprovedBy = approvedBy
-	_ = s.actions.Save(ctx, item)
-	_ = s.appendAudit(ctx, organizationID, item.EnvironmentID, approvedBy, "action_approved", item.Action+" "+item.Target, true)
+	if err := s.actions.Save(ctx, item); err != nil {
+		return domain.ActionRequest{}, err
+	}
+	_ = s.appendActionAudit(ctx, item, approvedBy, "action_approved", item.Action+" "+item.Target, true, "approved", "queued for execution", 0)
 
-	result, execErr := s.remediation.ExecuteAction(ctx, env, item.Action, item.Target)
-	now := time.Now().UTC()
-	item.ExecutedAt = &now
+	go s.executeApproved(item, env)
+	return item, nil
+}
+
+func (s *ActionService) executeApproved(item domain.ActionRequest, env domain.Environment) {
+	runCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	persistCtx := context.Background()
+
+	startedAt := time.Now().UTC()
+	item.StartedAt = &startedAt
+	item.Status = "executing"
+	item.ExecutionStage = "executing"
+	_ = s.actions.Save(persistCtx, item)
+
+	result, execErr := s.remediation.ExecuteAction(runCtx, env, item.Action, item.Target)
+	executedAt := time.Now().UTC()
+	item.ExecutedAt = &executedAt
 	item.Result = result
 	if execErr != nil {
 		item.Status = "failed"
+		item.ExecutionStage = "failed"
 		item.Result = execErr.Error()
-		_ = s.actions.Save(ctx, item)
-		_ = s.appendAudit(ctx, organizationID, item.EnvironmentID, "xentra-runner", "action_executed", execErr.Error(), false)
-		return item, nil
+		completedAt := time.Now().UTC()
+		item.CompletedAt = &completedAt
+		item.DurationMS = completedAt.Sub(startedAt).Milliseconds()
+		_ = s.actions.Save(persistCtx, item)
+		_ = s.appendActionAudit(persistCtx, item, "xentra-runner", "action_executed", execErr.Error(), false, "approved", item.Result, item.DurationMS)
+		return
 	}
 
-	verification, verifyErr := s.remediation.VerifyAction(ctx, env, item.Action, item.Target)
+	item.Status = "verifying"
+	item.ExecutionStage = "verifying"
+	_ = s.actions.Save(persistCtx, item)
+
+	verification, verifyErr := s.remediation.VerifyAction(runCtx, env, item.Action, item.Target)
 	if verifyErr != nil {
 		item.Status = "verification_failed"
+		item.ExecutionStage = "verification_failed"
 		item.Verification = domain.VerificationResult{Healthy: false, Summary: verifyErr.Error()}
 	} else {
 		item.Verification = verification
 		if verification.Healthy {
 			item.Status = "completed"
+			item.ExecutionStage = "completed"
 		} else {
 			item.Status = "verification_failed"
+			item.ExecutionStage = "verification_failed"
 		}
-	}
-	if err := s.actions.Save(ctx, item); err != nil {
-		return domain.ActionRequest{}, err
 	}
 
+	completedAt := time.Now().UTC()
+	item.CompletedAt = &completedAt
+	item.DurationMS = completedAt.Sub(startedAt).Milliseconds()
+	_ = s.actions.Save(persistCtx, item)
+
 	success := item.Status == "completed"
-	_ = s.appendAudit(ctx, organizationID, item.EnvironmentID, "xentra-runner", "action_executed", item.Result, success)
+	auditResult := item.Result
+	if item.Verification.Summary != "" {
+		if auditResult != "" {
+			auditResult += " | "
+		}
+		auditResult += item.Verification.Summary
+	}
+	_ = s.appendActionAudit(persistCtx, item, "xentra-runner", "action_executed", auditResult, success, "approved", auditResult, item.DurationMS)
 	if success && item.IncidentID != "" {
-		if incident, getErr := s.incidents.Get(ctx, organizationID, item.IncidentID); getErr == nil {
+		if incident, getErr := s.incidents.Get(persistCtx, item.OrganizationID, item.IncidentID); getErr == nil {
 			incident.Status = "resolved"
-			_ = s.incidents.Save(ctx, incident)
+			_ = s.incidents.Save(persistCtx, incident)
 		}
 	}
-	return item, nil
+}
+
+func (s *ActionService) Get(ctx context.Context, organizationID, id string) (domain.ActionRequest, error) {
+	return s.actions.Get(ctx, organizationID, id)
 }
 
 func (s *ActionService) Reject(ctx context.Context, organizationID, id, rejectedBy string) (domain.ActionRequest, error) {
@@ -150,11 +191,12 @@ func (s *ActionService) Reject(ctx context.Context, organizationID, id, rejected
 		return domain.ActionRequest{}, errors.New("action is not pending approval")
 	}
 	item.Status = "rejected"
+	item.ExecutionStage = "rejected"
 	item.RejectedBy = rejectedBy
 	if err := s.actions.Save(ctx, item); err != nil {
 		return domain.ActionRequest{}, err
 	}
-	_ = s.appendAudit(ctx, organizationID, item.EnvironmentID, rejectedBy, "action_rejected", item.Action+" "+item.Target, true)
+	_ = s.appendActionAudit(ctx, item, rejectedBy, "action_rejected", item.Action+" "+item.Target, true, "rejected", "rejected by owner", 0)
 	return item, nil
 }
 
@@ -162,14 +204,16 @@ func (s *ActionService) Audit(ctx context.Context, organizationID string) ([]dom
 	return s.audit.List(ctx, organizationID)
 }
 
-func (s *ActionService) appendAudit(ctx context.Context, organizationID, environmentID, actor, eventType, detail string, success bool) error {
+func (s *ActionService) appendActionAudit(ctx context.Context, item domain.ActionRequest, actor, eventType, detail string, success bool, approval, result string, durationMS int64) error {
 	id, err := newResourceID("audit")
 	if err != nil {
 		return err
 	}
 	return s.audit.Append(ctx, domain.AuditEvent{
-		ID: id, OrganizationID: organizationID, EnvironmentID: environmentID, Actor: actor,
-		EventType: eventType, Detail: detail, Success: success, CreatedAt: time.Now().UTC(),
+		ID: id, OrganizationID: item.OrganizationID, EnvironmentID: item.EnvironmentID, Actor: actor,
+		EventType: eventType, Detail: detail, Success: success, ActionID: item.ID,
+		Tool: item.Action, Target: item.Target, Approval: approval, DurationMS: durationMS,
+		Result: result, CreatedAt: time.Now().UTC(),
 	})
 }
 

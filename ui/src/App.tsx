@@ -9,6 +9,7 @@ import {EnvironmentDetailPage} from './pages/EnvironmentDetailPage';
 import {EnvironmentsPage} from './pages/EnvironmentsPage';
 import {IncidentsPage} from './pages/IncidentsPage';
 import {IntegrationsPage} from './pages/IntegrationsPage';
+import {LiveExecutionPage} from './pages/LiveExecutionPage';
 import {LoginPage} from './pages/LoginPage';
 import {ProjectsPage} from './pages/ProjectsPage';
 import {SettingsPage} from './pages/SettingsPage';
@@ -31,6 +32,7 @@ function RoutedApp(){
    <Route path="ask" element={<AskPage/>}/>
    <Route path="integrations" element={<IntegrationsPage/>}/>
    <Route path="approvals" element={<ApprovalsPage/>}/>
+   <Route path="executions/:actionId" element={<LiveExecutionPage/>}/>
    <Route path="audit" element={<AuditPage/>}/>
    <Route path="settings" element={<SettingsPage/>}/>
    <Route path="*" element={<Navigate to="/" replace/>}/>

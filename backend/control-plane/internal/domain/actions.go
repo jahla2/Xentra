@@ -21,8 +21,12 @@ type ActionRequest struct {
 	RejectedBy     string             `json:"rejectedBy,omitempty"`
 	Result         string             `json:"result,omitempty"`
 	Verification   VerificationResult `json:"verification"`
+	ExecutionStage string             `json:"executionStage"`
+	DurationMS     int64              `json:"durationMs"`
 	CreatedAt      time.Time          `json:"createdAt"`
+	StartedAt      *time.Time         `json:"startedAt,omitempty"`
 	ExecutedAt     *time.Time         `json:"executedAt,omitempty"`
+	CompletedAt    *time.Time         `json:"completedAt,omitempty"`
 }
 
 type AuditEvent struct {
@@ -33,5 +37,11 @@ type AuditEvent struct {
 	EventType      string    `json:"eventType"`
 	Detail         string    `json:"detail"`
 	Success        bool      `json:"success"`
+	ActionID       string    `json:"actionId,omitempty"`
+	Tool           string    `json:"tool,omitempty"`
+	Target         string    `json:"target,omitempty"`
+	Approval       string    `json:"approval,omitempty"`
+	DurationMS     int64     `json:"durationMs"`
+	Result         string    `json:"result,omitempty"`
 	CreatedAt      time.Time `json:"createdAt"`
 }
