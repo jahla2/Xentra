@@ -84,7 +84,7 @@ services:
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
       AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
       XENTRA_LEGACY_RUNNER_ENABLED: "false"
-      XENTRA_RUNNER_CONTROL_ADDR: ${XENTRA_RUNNER_CONTROL_ADDR:-:8443}
+      XENTRA_RUNNER_CONTROL_ADDR: ${XENTRA_RUNNER_CONTROL_ADDR-:8443}
       XENTRA_RUNNER_CONTROL_TLS_CERT: /run/secrets/runner_control_server_cert.pem
       XENTRA_RUNNER_CONTROL_TLS_KEY: /run/secrets/runner_control_server_key.pem
       XENTRA_RUNNER_CONTROL_CLIENT_CA: /run/secrets/runner_control_client_ca.pem
