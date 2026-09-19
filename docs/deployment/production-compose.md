@@ -33,7 +33,7 @@ Each installed Runner also needs its own client certificate/key signed by the co
 2. Set `XENTRA_ALLOWED_ORIGINS` to the public HTTPS UI origin.
 3. Set `XENTRA_PUBLIC_RUNNER_CONTROL_URL` to the externally reachable mTLS endpoint, for example `https://xentra.example.com:8443`.
 4. Provision the Runner-control server certificate/key and client CA files above.
-5. Start with `docker compose --env-file .env -f docker-compose.prod.yml up -d --build`.
+5. Start with `docker compose up -d --build`. The copied `.env` selects `docker-compose.prod.yml` through `COMPOSE_FILE`.
 6. Put normal TLS termination in front of port 8088 for browser traffic. Port 8443 already terminates mutual TLS in the control plane.
 
 The browser API trusts forwarded client IPs only because the bundled Nginx proxy is the direct upstream. If exposing the user API directly, set `XENTRA_TRUST_PROXY_HEADERS=false`.
@@ -59,3 +59,14 @@ To use the bundled Collector:
 The bundled Collector uses the debug exporter as a safe default validation backend. Replace the exporter in `infra/otel-collector.yaml` with your production backend (Tempo, Jaeger-compatible OTLP backend, Honeycomb, Datadog OTLP intake, etc.) while keeping the OTLP receiver and batch processor.
 
 Trace context uses W3C `traceparent` / `tracestate`. Xentra also persists that context with queued outbound Runner tasks so the Runner tool span continues the original investigation trace across the PostgreSQL queue.
+
+
+## AWS SSM credentials in Compose
+
+The SSM transport is wired into the same control-plane container.
+
+- **Production:** prefer an EC2 instance role / ECS task role so no long-lived AWS key is present in Docker environment variables.
+- **Local or self-hosted fallback:** the git-ignored `.env` may contain temporary `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN`; Compose passes these only to `control-plane`.
+- AWS region and EC2 instance ID remain environment-specific data configured from the Xentra UI; they are not global Compose settings.
+
+The control plane is attached to the public egress network so the AWS SDK can reach Systems Manager endpoints, while PostgreSQL remains on the internal-only network.
