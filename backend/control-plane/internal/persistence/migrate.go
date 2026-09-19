@@ -48,8 +48,11 @@ var environmentHealthURLMigration string
 //go:embed migrations/014_environment_aws_ssm.sql
 var environmentAWSSSMMigration string
 
+//go:embed migrations/015_action_execution_observability.sql
+var actionExecutionObservabilityMigration string
+
 func Migrate(ctx context.Context, db *sql.DB) error {
-	for _, migration := range []string{coreMigration, incidentMigration, actionsAuditMigration, authOrgMigration, projectsMigration, githubWebhooksMigration, githubAppMigration, incidentMemoryMigration, outboundRunnerMigration, otelTraceContextMigration, environmentDiscoveryMigration, actionRejectionMigration, environmentHealthURLMigration, environmentAWSSSMMigration} {
+	for _, migration := range []string{coreMigration, incidentMigration, actionsAuditMigration, authOrgMigration, projectsMigration, githubWebhooksMigration, githubAppMigration, incidentMemoryMigration, outboundRunnerMigration, otelTraceContextMigration, environmentDiscoveryMigration, actionRejectionMigration, environmentHealthURLMigration, environmentAWSSSMMigration, actionExecutionObservabilityMigration} {
 		if _, err := db.ExecContext(ctx, migration); err != nil {
 			return err
 		}
