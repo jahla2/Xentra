@@ -74,7 +74,7 @@ func (s *ActionService) Propose(ctx context.Context, organizationID, incidentID,
 	if err := s.actions.Save(ctx, item); err != nil {
 		return domain.ActionRequest{}, err
 	}
-	_ = s.appendActionAudit(persistCtx, item, "xentra-ai", "action_proposed", action+" "+target, true, "pending", reason, 0)
+	_ = s.appendActionAudit(ctx, item, "xentra-ai", "action_proposed", action+" "+target, true, "pending", reason, 0)
 	return item, nil
 }
 
@@ -100,7 +100,7 @@ func (s *ActionService) Approve(ctx context.Context, organizationID, id, approve
 	if err := s.actions.Save(ctx, item); err != nil {
 		return domain.ActionRequest{}, err
 	}
-	_ = s.appendActionAudit(persistCtx, item, approvedBy, "action_approved", item.Action+" "+item.Target, true, "approved", "queued for execution", 0)
+	_ = s.appendActionAudit(ctx, item, approvedBy, "action_approved", item.Action+" "+item.Target, true, "approved", "queued for execution", 0)
 
 	go s.executeApproved(item, env)
 	return item, nil
@@ -196,7 +196,7 @@ func (s *ActionService) Reject(ctx context.Context, organizationID, id, rejected
 	if err := s.actions.Save(ctx, item); err != nil {
 		return domain.ActionRequest{}, err
 	}
-	_ = s.appendActionAudit(persistCtx, item, rejectedBy, "action_rejected", item.Action+" "+item.Target, true, "rejected", "rejected by owner", 0)
+	_ = s.appendActionAudit(ctx, item, rejectedBy, "action_rejected", item.Action+" "+item.Target, true, "rejected", "rejected by owner", 0)
 	return item, nil
 }
 
