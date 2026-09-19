@@ -35,6 +35,7 @@ def test_openai_compatible_provider_validates_structured_result() -> None:
         assert request.headers["authorization"] == "Bearer test-key"
         body = json.loads(request.content)
         assert body["model"] == "test-model"
+        assert body["max_tokens"] == 900
         assert "docker.logs:api" in body["messages"][1]["content"]
         return httpx.Response(
             200,
