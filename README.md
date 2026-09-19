@@ -24,3 +24,21 @@ LLM evidence is bounded and schema-validated before a finding is returned.
 ## Safety
 
 The AI never receives raw infrastructure credentials and never executes arbitrary shell commands. Environment access is performed through typed tools. State-changing actions are restricted to allowlisted operations, require explicit human approval, run post-action verification, and are written to the audit trail.
+
+
+## Docker quick start
+
+Production Compose is selected automatically from `.env` through `COMPOSE_FILE=docker-compose.prod.yml`.
+
+```bash
+cp .env.example .env
+# Replace placeholder secrets/URLs in .env and provision the files under ./secrets.
+docker compose up -d --build
+docker compose ps
+```
+
+Core services use `restart: unless-stopped`, so after a Docker/host restart they come back automatically unless they were explicitly stopped.
+
+For AWS SSM, production deployments should give the Xentra control plane an IAM role. Temporary `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` values in the local git-ignored `.env` are supported only as a self-hosted/development fallback.
+
+See `docs/deployment/production-compose.md` and `docs/aws-ssm.md` for production prerequisites.
