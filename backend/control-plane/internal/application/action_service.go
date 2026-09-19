@@ -74,7 +74,7 @@ func (s *ActionService) Propose(ctx context.Context, organizationID, incidentID,
 	if err := s.actions.Save(ctx, item); err != nil {
 		return domain.ActionRequest{}, err
 	}
-	_ = s.appendActionAudit(ctx, item, "xentra-ai", "action_proposed", action+" "+target, true, "pending", reason, 0)
+	_ = s.appendActionAudit(persistCtx, item, "xentra-ai", "action_proposed", action+" "+target, true, "pending", reason, 0)
 	return item, nil
 }
 
@@ -100,23 +100,24 @@ func (s *ActionService) Approve(ctx context.Context, organizationID, id, approve
 	if err := s.actions.Save(ctx, item); err != nil {
 		return domain.ActionRequest{}, err
 	}
-	_ = s.appendActionAudit(ctx, item, approvedBy, "action_approved", item.Action+" "+item.Target, true, "approved", "queued for execution", 0)
+	_ = s.appendActionAudit(persistCtx, item, approvedBy, "action_approved", item.Action+" "+item.Target, true, "approved", "queued for execution", 0)
 
 	go s.executeApproved(item, env)
 	return item, nil
 }
 
 func (s *ActionService) executeApproved(item domain.ActionRequest, env domain.Environment) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	runCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
+	persistCtx := context.Background()
 
 	startedAt := time.Now().UTC()
 	item.StartedAt = &startedAt
 	item.Status = "executing"
 	item.ExecutionStage = "executing"
-	_ = s.actions.Save(ctx, item)
+	_ = s.actions.Save(persistCtx, item)
 
-	result, execErr := s.remediation.ExecuteAction(ctx, env, item.Action, item.Target)
+	result, execErr := s.remediation.ExecuteAction(runCtx, env, item.Action, item.Target)
 	executedAt := time.Now().UTC()
 	item.ExecutedAt = &executedAt
 	item.Result = result
@@ -127,16 +128,16 @@ func (s *ActionService) executeApproved(item domain.ActionRequest, env domain.En
 		completedAt := time.Now().UTC()
 		item.CompletedAt = &completedAt
 		item.DurationMS = completedAt.Sub(startedAt).Milliseconds()
-		_ = s.actions.Save(ctx, item)
-		_ = s.appendActionAudit(ctx, item, "xentra-runner", "action_executed", execErr.Error(), false, "approved", item.Result, item.DurationMS)
+		_ = s.actions.Save(persistCtx, item)
+		_ = s.appendActionAudit(persistCtx, item, "xentra-runner", "action_executed", execErr.Error(), false, "approved", item.Result, item.DurationMS)
 		return
 	}
 
 	item.Status = "verifying"
 	item.ExecutionStage = "verifying"
-	_ = s.actions.Save(ctx, item)
+	_ = s.actions.Save(persistCtx, item)
 
-	verification, verifyErr := s.remediation.VerifyAction(ctx, env, item.Action, item.Target)
+	verification, verifyErr := s.remediation.VerifyAction(runCtx, env, item.Action, item.Target)
 	if verifyErr != nil {
 		item.Status = "verification_failed"
 		item.ExecutionStage = "verification_failed"
@@ -155,7 +156,7 @@ func (s *ActionService) executeApproved(item domain.ActionRequest, env domain.En
 	completedAt := time.Now().UTC()
 	item.CompletedAt = &completedAt
 	item.DurationMS = completedAt.Sub(startedAt).Milliseconds()
-	_ = s.actions.Save(ctx, item)
+	_ = s.actions.Save(persistCtx, item)
 
 	success := item.Status == "completed"
 	auditResult := item.Result
@@ -165,11 +166,11 @@ func (s *ActionService) executeApproved(item domain.ActionRequest, env domain.En
 		}
 		auditResult += item.Verification.Summary
 	}
-	_ = s.appendActionAudit(ctx, item, "xentra-runner", "action_executed", auditResult, success, "approved", auditResult, item.DurationMS)
+	_ = s.appendActionAudit(persistCtx, item, "xentra-runner", "action_executed", auditResult, success, "approved", auditResult, item.DurationMS)
 	if success && item.IncidentID != "" {
-		if incident, getErr := s.incidents.Get(ctx, item.OrganizationID, item.IncidentID); getErr == nil {
+		if incident, getErr := s.incidents.Get(persistCtx, item.OrganizationID, item.IncidentID); getErr == nil {
 			incident.Status = "resolved"
-			_ = s.incidents.Save(ctx, incident)
+			_ = s.incidents.Save(persistCtx, incident)
 		}
 	}
 }
@@ -195,7 +196,7 @@ func (s *ActionService) Reject(ctx context.Context, organizationID, id, rejected
 	if err := s.actions.Save(ctx, item); err != nil {
 		return domain.ActionRequest{}, err
 	}
-	_ = s.appendActionAudit(ctx, item, rejectedBy, "action_rejected", item.Action+" "+item.Target, true, "rejected", "rejected by owner", 0)
+	_ = s.appendActionAudit(persistCtx, item, rejectedBy, "action_rejected", item.Action+" "+item.Target, true, "rejected", "rejected by owner", 0)
 	return item, nil
 }
 
