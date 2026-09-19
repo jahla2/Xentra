@@ -122,23 +122,18 @@ func (c *SSHClient) Collect(ctx context.Context, env domain.Environment) ([]doma
 		{Tool: "system.memory", Arguments: map[string]string{}},
 		{Tool: "docker.list", Arguments: map[string]string{}},
 	}
-	evidence := make([]domain.Evidence, 0, len(requests))
-	for _, request := range requests {
+	evidence := collectEvidenceParallel(ctx, requests, func(_ context.Context, request domain.ToolRequest) (domain.Evidence, error) {
 		startedAt := time.Now().UTC()
 		command, commandErr := sshReadToolCommand(request)
 		if commandErr != nil {
-			evidence = append(evidence, domain.Evidence{
-				Source: request.Tool, Success: false, Output: commandErr.Error(),
-				OccurredAt: startedAt, DurationMS: time.Since(startedAt).Milliseconds(),
-			})
-			continue
+			return domain.Evidence{}, commandErr
 		}
 		output, runErr := runSSH(client, command)
-		evidence = append(evidence, domain.Evidence{
+		return domain.Evidence{
 			Source: toolEvidenceSource(request), Success: runErr == nil, Output: outputOrError(output, runErr),
 			OccurredAt: startedAt, DurationMS: time.Since(startedAt).Milliseconds(),
-		})
-	}
+		}, nil
+	})
 	return evidence, nil
 }
 
