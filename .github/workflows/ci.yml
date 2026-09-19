@@ -117,3 +117,25 @@ jobs:
           touch secrets/github_app_private_key.pem secrets/runner_control_server_cert.pem secrets/runner_control_server_key.pem secrets/runner_control_client_ca.pem
           docker compose --env-file .env -f docker-compose.prod.yml config >/dev/null
           XENTRA_OTEL_ENDPOINT=http://otel-collector:4318 docker compose --env-file .env --profile observability -f docker-compose.prod.yml config >/dev/null
+      - name: Smoke production compose startup
+        run: |
+          set -euo pipefail
+          export POSTGRES_PASSWORD="ci-postgres-password"
+          export XENTRA_MASTER_KEY="$(openssl rand -base64 32 | tr -d '\n')"
+          export XENTRA_METRICS_TOKEN="ci-metrics-token"
+          export XENTRA_ALLOWED_ORIGINS="http://127.0.0.1:8088"
+          export XENTRA_RUNNER_CONTROL_ADDR=""
+          trap 'docker compose down -v --remove-orphans' EXIT
+          docker compose up -d --build
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8088/healthz >/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+          curl --fail --silent http://127.0.0.1:8088/healthz
+          curl --fail --silent \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"ci@example.com","password":"ci-password-123","organizationName":"CI"}' \
+            http://127.0.0.1:8088/api/auth/register >/dev/null
+          docker compose ps
