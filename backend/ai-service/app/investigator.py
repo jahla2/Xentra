@@ -64,6 +64,7 @@ def build_engine_from_env() -> InvestigationEngine:
         timeout_seconds=float(os.getenv("XENTRA_LLM_TIMEOUT_SECONDS", "20")),
         max_evidence_chars=int(os.getenv("XENTRA_LLM_MAX_EVIDENCE_CHARS", "24000")),
         max_item_chars=int(os.getenv("XENTRA_LLM_MAX_ITEM_CHARS", "6000")),
+        max_output_tokens=int(os.getenv("XENTRA_LLM_MAX_OUTPUT_TOKENS", "900")),
     )
     return InvestigationEngine(
         provider=OpenAICompatibleProvider(config),

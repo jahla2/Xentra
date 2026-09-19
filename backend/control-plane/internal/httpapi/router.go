@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/jahla2/Xentra/backend/control-plane/internal/application"
+	"github.com/jahla2/Xentra/backend/control-plane/internal/domain"
 )
 
 type Services struct {
@@ -69,6 +70,7 @@ func NewRouter(environments *application.EnvironmentService, investigations *app
 	}
 	if investigations != nil {
 		mux.HandleFunc("POST /api/investigations", h.investigate)
+		mux.HandleFunc("POST /api/investigations/stream", h.investigateStream)
 	}
 	if h.integrations != nil {
 		mux.HandleFunc("POST /api/integrations/github", h.connectGitHub)
@@ -260,6 +262,52 @@ func (h *Handler) investigate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *Handler) investigateStream(w http.ResponseWriter, r *http.Request) {
+	principal, ok := principalFromRequest(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		return
+	}
+	var input struct {
+		EnvironmentID string `json:"environmentId"`
+		Question      string `json:"question"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil || input.EnvironmentID == "" || input.Question == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "environmentId and question are required"})
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "streaming is unavailable"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache, no-store")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	writeEvent := func(event domain.InvestigationProgress) {
+		payload, err := json.Marshal(event)
+		if err != nil {
+			return
+		}
+		_, _ = w.Write([]byte("data: "))
+		_, _ = w.Write(payload)
+		_, _ = w.Write([]byte("\n\n"))
+		flusher.Flush()
+	}
+
+	_, err := h.investigations.InvestigateWithProgress(
+		r.Context(), principal.OrganizationID, input.EnvironmentID, input.Question, writeEvent,
+	)
+	if err != nil {
+		writeEvent(domain.InvestigationProgress{Stage: "error", Message: err.Error()})
+	}
 }
 
 func (h *Handler) connectGitHub(w http.ResponseWriter, r *http.Request) {

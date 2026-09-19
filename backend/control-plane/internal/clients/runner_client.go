@@ -101,16 +101,16 @@ func (c *RunnerClient) Discover(ctx context.Context, env domain.Environment) (do
 }
 
 func (c *RunnerClient) Collect(ctx context.Context, env domain.Environment) ([]domain.Evidence, error) {
-	tools := []string{"system.info", "system.disk", "system.cpu", "system.memory", "docker.list"}
-	evidence := make([]domain.Evidence, 0, len(tools))
-	for _, tool := range tools {
-		item, err := c.ExecuteReadTool(ctx, env, domain.ToolRequest{Tool: tool, Arguments: map[string]string{}})
-		if err != nil {
-			item = domain.Evidence{Source: tool, Success: false, Output: err.Error()}
-		}
-		evidence = append(evidence, item)
+	requests := []domain.ToolRequest{
+		{Tool: "system.info", Arguments: map[string]string{}},
+		{Tool: "system.disk", Arguments: map[string]string{}},
+		{Tool: "system.cpu", Arguments: map[string]string{}},
+		{Tool: "system.memory", Arguments: map[string]string{}},
+		{Tool: "docker.list", Arguments: map[string]string{}},
 	}
-	return evidence, nil
+	return collectEvidenceParallel(ctx, requests, func(ctx context.Context, request domain.ToolRequest) (domain.Evidence, error) {
+		return c.ExecuteReadTool(ctx, env, request)
+	}), nil
 }
 
 func (c *RunnerClient) ExecuteReadTool(ctx context.Context, env domain.Environment, request domain.ToolRequest) (domain.Evidence, error) {

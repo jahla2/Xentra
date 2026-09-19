@@ -37,6 +37,7 @@ class LLMConfig:
     timeout_seconds: float = 20.0
     max_evidence_chars: int = 24_000
     max_item_chars: int = 6_000
+    max_output_tokens: int = 900
 
 
 class HeuristicProvider:
@@ -124,6 +125,7 @@ class OpenAICompatibleProvider:
         payload = {
             "model": self._config.model,
             "temperature": 0.1,
+            "max_tokens": self._config.max_output_tokens,
             "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": system},
@@ -201,4 +203,10 @@ TOOL_DESCRIPTIONS = {
     "docker.logs": "last 200 container log lines; argument: container",
     "docker.inspect": "Docker container metadata; argument: container",
     "docker.stats": "one-shot CPU/memory/network/block metrics; argument: container",
+    "git.status": "Git working tree status; optional argument: path",
+    "git.log": "recent Git commits; optional argument: path",
+    "git.diff": "current Git working tree diff; optional argument: path",
+    "git.show_commit": "show one Git commit; arguments: commit and optional path",
+    "http.health_check": "HTTP/HTTPS endpoint status; argument: url",
+    "dns.lookup": "DNS address lookup; argument: host",
 }
