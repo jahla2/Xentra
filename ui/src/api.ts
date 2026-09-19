@@ -6,6 +6,7 @@ export type Environment={id:string;projectId:string;name:string;type:string;conn
 export type Evidence={source:string;output:string;success:boolean;occurredAt:string;durationMs:number};
 export type TimelineEvent={source:string;kind:string;summary:string;url?:string;occurredAt:string};
 export type InvestigationResult={summary:string;confidence:string;probableRootCause:string;recommendedAction:string;evidence:Evidence[]};
+export type InvestigationProgressEvent={stage:string;message:string;evidence?:Evidence;result?:InvestigationResult;toolCalls:number;evidenceCount:number;elapsedMs:number};
 export type Incident={id:string;environmentId:string;question:string;status:string;summary:string;rootCause:string;confidence:string;recommendedAction:string;evidence:Evidence[];timeline:TimelineEvent[];createdAt:string};
 export type VerificationResult={healthy:boolean;summary:string;evidence:Evidence[]};
 export type ActionRequest={id:string;incidentId?:string;environmentId:string;action:string;target:string;reason:string;status:string;approvedBy?:string;rejectedBy?:string;result?:string;verification:VerificationResult;executionStage:string;durationMs:number;createdAt:string;startedAt?:string;executedAt?:string;completedAt?:string};
@@ -39,6 +40,52 @@ async function request<T>(path:string,init?:RequestInit):Promise<T>{
  return response.json() as Promise<T>;
 }
 
+async function investigateStream(
+ environmentId:string,
+ question:string,
+ onProgress:(event:InvestigationProgressEvent)=>void,
+):Promise<InvestigationResult>{
+ const headers:Record<string,string>={'Content-Type':'application/json'};
+ if(authToken)headers.Authorization=`Bearer ${authToken}`;
+ const response=await fetch(`${API_URL}/api/investigations/stream`,{
+  method:'POST',headers,body:JSON.stringify({environmentId,question}),
+ });
+ if(!response.ok){
+  const payload=await response.json().catch(()=>({error:'Investigation stream failed'}));
+  throw new Error(payload.error??`Investigation stream failed with ${response.status}`);
+ }
+ if(!response.body)throw new Error('Streaming response body is unavailable');
+
+ const reader=response.body.getReader();
+ const decoder=new TextDecoder();
+ let buffer='';
+ let finalResult:InvestigationResult|null=null;
+
+ while(true){
+  const{done,value}=await reader.read();
+  if(value)buffer+=decoder.decode(value,{stream:!done});
+  let boundary=buffer.indexOf('\n\n');
+  while(boundary>=0){
+   const frame=buffer.slice(0,boundary).replace(/\r/g,'');
+   buffer=buffer.slice(boundary+2);
+   const data=frame.split('\n')
+    .filter(line=>line.startsWith('data: '))
+    .map(line=>line.slice(6))
+    .join('\n');
+   if(data){
+    const event=JSON.parse(data) as InvestigationProgressEvent;
+    onProgress(event);
+    if(event.stage==='error')throw new Error(event.message||'Investigation failed');
+    if(event.result)finalResult=event.result;
+   }
+   boundary=buffer.indexOf('\n\n');
+  }
+  if(done)break;
+ }
+ if(!finalResult)throw new Error('Investigation stream ended without a final finding');
+ return finalResult;
+}
+
 export const api={
  hasToken:()=>Boolean(authToken),
  setToken,
@@ -53,6 +100,7 @@ export const api={
  createEnvironment:(input:CreateEnvironmentInput)=>request<Environment>('/api/environments',{method:'POST',body:JSON.stringify(input)}),
  createRunnerEnrollment:(projectId:string,name:string,type:string,healthUrl:string)=>request<RunnerEnrollment>('/api/runner-enrollments',{method:'POST',body:JSON.stringify({projectId,name,type,healthUrl})}),
  investigate:(environmentId:string,question:string)=>request<InvestigationResult>('/api/investigations',{method:'POST',body:JSON.stringify({environmentId,question})}),
+ investigateStream,
  connectGitHub:(environmentId:string,owner:string,repo:string,authMode:'github_app'|'token',accessToken:string)=>request<GitHubIntegrationSetup>('/api/integrations/github',{method:'POST',body:JSON.stringify({environmentId,owner,repo,authMode,accessToken})}),
  listIncidents:()=>request<Incident[]>('/api/incidents'),
  createIncident:(environmentId:string,question:string)=>request<Incident>('/api/incidents',{method:'POST',body:JSON.stringify({environmentId,question})}),
