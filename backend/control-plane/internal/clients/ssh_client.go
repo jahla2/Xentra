@@ -33,13 +33,13 @@ func (c *SSHClient) Discover(ctx context.Context, env domain.Environment) (domai
 	if err != nil { return domain.Discovery{}, err }
 	defer client.Close()
 
-	osName, err := runSSH(client, "uname -s")
+	osName, err := runSSHContext(ctx, client, "uname -s")
 	if err != nil { return domain.Discovery{}, err }
-	hostname, err := runSSH(client, "hostname")
+	hostname, err := runSSHContext(ctx, client, "hostname")
 	if err != nil { return domain.Discovery{}, err }
-	cpu, _ := runSSH(client, "nproc")
-	memory, _ := runSSH(client, "free -m")
-	disk, _ := runSSH(client, "df -h /")
+	cpu, _ := runSSHContext(ctx, client, "nproc")
+	memory, _ := runSSHContext(ctx, client, "free -m")
+	disk, _ := runSSHContext(ctx, client, "df -h /")
 
 	caps := []string{}
 	for name, command := range map[string]string{
@@ -50,12 +50,12 @@ func (c *SSHClient) Discover(ctx context.Context, env domain.Environment) (domai
 		"http": "command -v curl",
 		"dns": "command -v getent",
 	} {
-		if _, err := runSSH(client, command); err == nil { caps = append(caps, name) }
+		if _, err := runSSHContext(ctx, client, command); err == nil { caps = append(caps, name) }
 	}
 
 	containers := []string{}
 	if containsCapability(caps, "docker") {
-		if output, listErr := runSSH(client, "docker ps --format '{{.Names}}\\t{{.Status}}'"); listErr == nil {
+		if output, listErr := runSSHContext(ctx, client, "docker ps --format '{{.Names}}\\t{{.Status}}'"); listErr == nil {
 			containers = remoteDiscoveryLines(output, 100)
 		}
 	}
@@ -122,13 +122,13 @@ func (c *SSHClient) Collect(ctx context.Context, env domain.Environment) ([]doma
 		{Tool: "system.memory", Arguments: map[string]string{}},
 		{Tool: "docker.list", Arguments: map[string]string{}},
 	}
-	evidence := collectEvidenceParallel(ctx, requests, func(_ context.Context, request domain.ToolRequest) (domain.Evidence, error) {
+	evidence := collectEvidenceParallel(ctx, requests, func(toolCtx context.Context, request domain.ToolRequest) (domain.Evidence, error) {
 		startedAt := time.Now().UTC()
 		command, commandErr := sshReadToolCommand(request)
 		if commandErr != nil {
 			return domain.Evidence{}, commandErr
 		}
-		output, runErr := runSSH(client, command)
+		output, runErr := runSSHContext(toolCtx, client, command)
 		return domain.Evidence{
 			Source: toolEvidenceSource(request), Success: runErr == nil, Output: outputOrError(output, runErr),
 			OccurredAt: startedAt, DurationMS: time.Since(startedAt).Milliseconds(),
@@ -148,7 +148,7 @@ func (c *SSHClient) ExecuteReadTool(ctx context.Context, env domain.Environment,
 		return domain.Evidence{}, err
 	}
 	defer client.Close()
-	output, runErr := runSSH(client, command)
+	output, runErr := runSSHContext(ctx, client, command)
 	return domain.Evidence{
 		Source: toolEvidenceSource(request), Success: runErr == nil, Output: outputOrError(output, runErr),
 		OccurredAt: startedAt, DurationMS: time.Since(startedAt).Milliseconds(),
@@ -233,7 +233,7 @@ func (c *SSHClient) ExecuteAction(ctx context.Context, env domain.Environment, a
 	default:
 		return "", errors.New("action is not allowlisted")
 	}
-	return runSSH(client, command)
+	return runSSHContext(ctx, client, command)
 }
 
 func (c *SSHClient) VerifyAction(ctx context.Context, env domain.Environment, action, target string) (domain.VerificationResult, error) {
@@ -254,7 +254,7 @@ func (c *SSHClient) VerifyAction(ctx context.Context, env domain.Environment, ac
 		return domain.VerificationResult{}, errors.New("action is not verifiable")
 	}
 
-	output, runErr := runSSH(client, command)
+	output, runErr := runSSHContext(ctx, client, command)
 	normalized := strings.TrimSpace(strings.ToLower(output))
 	statusHealthy := runErr == nil && (normalized == "true" || normalized == "active" || normalized == "running")
 	evidence := []domain.Evidence{{Source: source, Output: outputOrError(output, runErr), Success: runErr == nil, OccurredAt: time.Now().UTC()}}
@@ -264,7 +264,7 @@ func (c *SSHClient) VerifyAction(ctx context.Context, env domain.Environment, ac
 		if commandErr != nil {
 			return domain.VerificationResult{}, commandErr
 		}
-		healthOutput, healthErr := runSSH(client, healthCommand)
+		healthOutput, healthErr := runSSHContext(ctx, client, healthCommand)
 		healthSuccess := healthErr == nil
 		healthy = statusHealthy && httpHealthHealthy(healthOutput, healthSuccess)
 		evidence = append(evidence, domain.Evidence{Source: "http.health_check:" + env.HealthURL, Output: outputOrError(healthOutput, healthErr), Success: healthSuccess, OccurredAt: time.Now().UTC()})
@@ -313,12 +313,30 @@ func parseSigner(credential domain.SSHCredential) (ssh.Signer, error) {
 	return ssh.ParsePrivateKey(key)
 }
 
-func runSSH(client *ssh.Client, command string) (string, error) {
+func runSSHContext(ctx context.Context, client *ssh.Client, command string) (string, error) {
 	session, err := client.NewSession()
-	if err != nil { return "", err }
+	if err != nil {
+		return "", err
+	}
 	defer session.Close()
-	output, err := session.CombinedOutput(command)
-	return string(output), err
+
+	type sshResult struct {
+		output []byte
+		err    error
+	}
+	resultCh := make(chan sshResult, 1)
+	go func() {
+		output, runErr := session.CombinedOutput(command)
+		resultCh <- sshResult{output: output, err: runErr}
+	}()
+
+	select {
+	case result := <-resultCh:
+		return string(result.output), result.err
+	case <-ctx.Done():
+		_ = session.Close()
+		return "", ctx.Err()
+	}
 }
 
 func outputOrError(output string, err error) string {
