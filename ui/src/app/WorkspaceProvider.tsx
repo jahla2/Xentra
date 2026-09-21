@@ -1,5 +1,5 @@
 import {createContext,useContext,useEffect,useMemo,useState} from 'react';
-import {api,ActionRequest,AuditEvent,AuthSession,CreateEnvironmentInput,Environment,GitHubIntegrationSetup,Incident,InvestigationResult,Principal,Project,RunnerEnrollment} from '../api';
+import {api,ActionRequest,AuditEvent,AuthSession,CreateEnvironmentInput,Environment,GitHubIntegrationSetup,Incident,InvestigationProgressEvent,InvestigationResult,Principal,Project,RunnerEnrollment} from '../api';
 
 type AuthMode='login'|'register';
 type GitHubAuthMode='github_app'|'token';
@@ -16,6 +16,7 @@ type WorkspaceContextValue={
  selectedEnvironmentId:string;
  question:string;
  investigation:InvestigationResult|null;
+ investigationProgress:InvestigationProgressEvent[];
  latestIncident:Incident|null;
  action:ActionRequest|null;
  githubSetup:GitHubIntegrationSetup|null;
@@ -55,6 +56,7 @@ export function WorkspaceProvider({children}:{children:React.ReactNode}){
  const[selectedEnvironmentId,setSelectedEnvironmentId]=useState('');
  const[question,setQuestion]=useState('Why is the API down?');
  const[investigation,setInvestigation]=useState<InvestigationResult|null>(null);
+ const[investigationProgress,setInvestigationProgress]=useState<InvestigationProgressEvent[]>([]);
  const[latestIncident,setLatestIncident]=useState<Incident|null>(null);
  const[action,setAction]=useState<ActionRequest|null>(null);
  const[githubSetup,setGitHubSetup]=useState<GitHubIntegrationSetup|null>(null);
@@ -136,6 +138,7 @@ export function WorkspaceProvider({children}:{children:React.ReactNode}){
   setAudit([]);
   setSelectedEnvironmentId('');
   setInvestigation(null);
+  setInvestigationProgress([]);
   setLatestIncident(null);
   setAction(null);
   setGitHubSetup(null);
@@ -168,8 +171,11 @@ export function WorkspaceProvider({children}:{children:React.ReactNode}){
  async function investigate(){
   if(!selectedEnvironmentId)return;
   setInvestigation(null);
+  setInvestigationProgress([]);
   await run(
-   ()=>api.investigate(selectedEnvironmentId,question),
+   ()=>api.investigateStream(selectedEnvironmentId,question,event=>{
+    setInvestigationProgress(current=>[...current.slice(-59),event]);
+   }),
    setInvestigation,
    false,
   );
@@ -223,7 +229,7 @@ export function WorkspaceProvider({children}:{children:React.ReactNode}){
 
  const value=useMemo<WorkspaceContextValue>(()=>({
   principal,authReady,loading,error,projects,environments,incidents,audit,
-  selectedEnvironmentId,question,investigation,latestIncident,action,githubSetup,runnerEnrollment,
+  selectedEnvironmentId,question,investigation,investigationProgress,latestIncident,action,githubSetup,runnerEnrollment,
   isOwner:principal?.role==='owner',
   setSelectedEnvironmentId,setQuestion,
   clearError:()=>setError(''),
@@ -233,7 +239,7 @@ export function WorkspaceProvider({children}:{children:React.ReactNode}){
   createIncident,connectGitHub,proposeAction,approveAction,rejectAction,
  }),[
   principal,authReady,loading,error,projects,environments,incidents,audit,
-  selectedEnvironmentId,question,investigation,latestIncident,action,githubSetup,runnerEnrollment,
+  selectedEnvironmentId,question,investigation,investigationProgress,latestIncident,action,githubSetup,runnerEnrollment,
  ]);
 
  return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;

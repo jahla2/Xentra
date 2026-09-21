@@ -7,8 +7,8 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class Evidence(BaseModel):
-    source: str
-    output: str
+    source: str = Field(min_length=1, max_length=512)
+    output: str = Field(max_length=8192)
     success: bool
     occurredAt: datetime | None = None
     durationMs: int = Field(default=0, ge=0)
@@ -34,8 +34,8 @@ class ToolRequest(BaseModel):
 
 class InvestigationRequest(BaseModel):
     environment: Environment
-    question: str
-    evidence: list[Evidence]
+    question: str = Field(min_length=1, max_length=4000)
+    evidence: list[Evidence] = Field(default_factory=list, max_length=48)
 
 
 class AgentInvestigationRequest(InvestigationRequest):
@@ -44,10 +44,10 @@ class AgentInvestigationRequest(InvestigationRequest):
 
 
 class InvestigationFinding(BaseModel):
-    summary: str
+    summary: str = Field(min_length=1, max_length=4000)
     confidence: Literal["low", "medium", "high"]
-    probableRootCause: str
-    recommendedAction: str
+    probableRootCause: str = Field(min_length=1, max_length=4000)
+    recommendedAction: str = Field(min_length=1, max_length=4000)
 
 
 class AgentDecision(BaseModel):

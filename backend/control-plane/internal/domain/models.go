@@ -88,3 +88,14 @@ type InvestigationResult struct {
 	RecommendedAction string     `json:"recommendedAction"`
 	Evidence          []Evidence `json:"evidence"`
 }
+
+
+type InvestigationProgress struct {
+	Stage         string               `json:"stage"`
+	Message       string               `json:"message"`
+	Evidence      *Evidence            `json:"evidence,omitempty"`
+	Result        *InvestigationResult `json:"result,omitempty"`
+	ToolCalls     int                  `json:"toolCalls"`
+	EvidenceCount int                  `json:"evidenceCount"`
+	ElapsedMS     int64                `json:"elapsedMs"`
+}
