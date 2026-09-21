@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [development, main]
   push:
-    branches: [development]
+    branches: [development, main]
 
 jobs:
   go:
@@ -58,8 +58,8 @@ jobs:
         image: pgvector/pgvector:pg17
         env:
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
           POSTGRES_DB: xentra
+          POSTGRES_HOST_AUTH_METHOD: trust
         ports:
           - 5432:5432
         options: >-
@@ -68,7 +68,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      XENTRA_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/xentra?sslmode=disable
+      XENTRA_DATABASE_URL: postgres://postgres@127.0.0.1:5432/xentra?sslmode=disable
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
