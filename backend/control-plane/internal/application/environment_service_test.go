@@ -1,0 +1,149 @@
+package application
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/jahla2/Xentra/backend/control-plane/internal/domain"
+)
+
+type fakeDiscoveryClient struct{ result domain.Discovery }
+
+func (f fakeDiscoveryClient) Discover(_ context.Context, _ domain.Environment) (domain.Discovery, error) {
+	return f.result, nil
+}
+
+type fakeSSHCredentialWriter struct{ id string }
+
+func (f fakeSSHCredentialWriter) StoreSSH(context.Context, domain.SSHCredential) (string, error) {
+	return f.id, nil
+}
+
+func projectRepoForTest() *MemoryProjectRepository {
+	repo := NewMemoryProjectRepository()
+	_ = repo.Save(context.Background(), domain.Project{ID: "prj-1", OrganizationID: "org-a", Name: "API", CreatedAt: time.Now()})
+	return repo
+}
+
+func TestCreateRunnerEnvironmentDiscoversCapabilities(t *testing.T) {
+	repo := NewMemoryEnvironmentRepository()
+	discovery := fakeDiscoveryClient{domain.Discovery{
+		OS: "linux", Hostname: "prod-01", CPU: "8 cores",
+		Memory: "Mem: 16000 8000 4000", Disk: "/dev/sda1 100G 40G 60G 40% /",
+		Containers: []string{"api\tUp 2 minutes"}, Capabilities: []string{"docker", "systemd"},
+	}}
+	service := NewEnvironmentService(repo, projectRepoForTest(), discovery, nil)
+
+	env, err := service.Create(context.Background(), "org-a", CreateEnvironmentInput{ProjectID: "prj-1", Name: "Production", Type: "production", ConnectionType: "runner", RunnerURL: "http://runner:8090"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env.ProjectID != "prj-1" || env.OrganizationID != "org-a" || env.ConnectionType != "runner" || env.Hostname != "prod-01" || env.CPU != "8 cores" || env.Memory == "" || env.Disk == "" || len(env.Containers) != 1 || len(env.Capabilities) != 2 {
+		t.Fatalf("unexpected environment: %#v", env)
+	}
+}
+
+func TestCreateSSHEnvironmentStoresCredentialReferenceOnly(t *testing.T) {
+	repo := NewMemoryEnvironmentRepository()
+	discovery := fakeDiscoveryClient{domain.Discovery{OS: "linux", Hostname: "ssh-prod", Capabilities: []string{"docker"}}}
+	service := NewEnvironmentService(repo, projectRepoForTest(), discovery, fakeSSHCredentialWriter{id: "cred-safe"})
+
+	env, err := service.Create(context.Background(), "org-a", CreateEnvironmentInput{ProjectID: "prj-1", Name: "SSH Production", ConnectionType: "ssh", SSHHost: "10.0.0.10", SSHUser: "ubuntu", SSHPrivateKey: "PRIVATE", SSHHostKeyFingerprint: "SHA256:test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env.CredentialID != "cred-safe" || env.SSHPort != 22 {
+		t.Fatalf("unexpected environment: %#v", env)
+	}
+}
+
+func TestEnvironmentCannotUseProjectFromAnotherOrganization(t *testing.T) {
+	projects := NewMemoryProjectRepository()
+	_ = projects.Save(context.Background(), domain.Project{ID: "prj-b", OrganizationID: "org-b", Name: "Other"})
+	service := NewEnvironmentService(NewMemoryEnvironmentRepository(), projects, fakeDiscoveryClient{}, nil)
+
+	_, err := service.Create(context.Background(), "org-a", CreateEnvironmentInput{ProjectID: "prj-b", Name: "Prod", ConnectionType: "runner", RunnerURL: "http://runner:8090"})
+	if err == nil {
+		t.Fatal("expected cross-organization project to be rejected")
+	}
+}
+
+func TestEnvironmentRepositoryIsolatesOrganizations(t *testing.T) {
+	repo := NewMemoryEnvironmentRepository()
+	_ = repo.Save(context.Background(), domain.Environment{ID: "env-a", OrganizationID: "org-a", ProjectID: "prj-a"})
+	_ = repo.Save(context.Background(), domain.Environment{ID: "env-b", OrganizationID: "org-b", ProjectID: "prj-b"})
+
+	items, _ := repo.List(context.Background(), "org-a")
+	if len(items) != 1 || items[0].ID != "env-a" {
+		t.Fatalf("unexpected org-a environments: %#v", items)
+	}
+	if _, err := repo.Get(context.Background(), "org-a", "env-b"); err == nil {
+		t.Fatal("expected cross-organization lookup to fail")
+	}
+}
+
+
+func TestCreateEnvironmentPersistsValidHealthURL(t *testing.T) {
+	repo := NewMemoryEnvironmentRepository()
+	discovery := fakeDiscoveryClient{domain.Discovery{OS: "linux", Hostname: "prod-01"}}
+	service := NewEnvironmentService(repo, projectRepoForTest(), discovery, nil)
+
+	env, err := service.Create(context.Background(), "org-a", CreateEnvironmentInput{
+		ProjectID: "prj-1", Name: "Production", ConnectionType: "runner",
+		RunnerURL: "http://runner:8090", HealthURL: "https://api.example.com/health",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env.HealthURL != "https://api.example.com/health" {
+		t.Fatalf("unexpected health URL %q", env.HealthURL)
+	}
+}
+
+func TestCreateEnvironmentRejectsUnsafeHealthURL(t *testing.T) {
+	service := NewEnvironmentService(NewMemoryEnvironmentRepository(), projectRepoForTest(), fakeDiscoveryClient{}, nil)
+	for _, healthURL := range []string{"file:///etc/passwd", "https://user:secret@example.com/health", "not-a-url"} {
+		_, err := service.Create(context.Background(), "org-a", CreateEnvironmentInput{
+			ProjectID: "prj-1", Name: "Production", ConnectionType: "runner",
+			RunnerURL: "http://runner:8090", HealthURL: healthURL,
+		})
+		if err == nil {
+			t.Fatalf("expected health URL %q to be rejected", healthURL)
+		}
+	}
+}
+
+
+func TestCreateAWSSSMEnvironmentStoresTargetAndDiscovers(t *testing.T) {
+	repo := NewMemoryEnvironmentRepository()
+	discovery := fakeDiscoveryClient{domain.Discovery{
+		OS: "linux", Hostname: "ip-10-0-0-25", CPU: "4 cores",
+		Capabilities: []string{"docker", "systemd", "http"},
+	}}
+	service := NewEnvironmentService(repo, projectRepoForTest(), discovery, nil)
+
+	env, err := service.Create(context.Background(), "org-a", CreateEnvironmentInput{
+		ProjectID: "prj-1", Name: "AWS Production", Type: "production",
+		ConnectionType: "aws_ssm", AWSRegion: "ap-southeast-2", AWSInstanceID: "i-0123456789abcdef0",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env.ConnectionType != "aws_ssm" || env.AWSRegion != "ap-southeast-2" || env.AWSInstanceID != "i-0123456789abcdef0" || env.Hostname != "ip-10-0-0-25" {
+		t.Fatalf("unexpected AWS SSM environment: %#v", env)
+	}
+}
+
+func TestCreateAWSSSMEnvironmentRejectsInvalidTarget(t *testing.T) {
+	service := NewEnvironmentService(NewMemoryEnvironmentRepository(), projectRepoForTest(), fakeDiscoveryClient{}, nil)
+	cases := []CreateEnvironmentInput{
+		{ProjectID: "prj-1", Name: "AWS", ConnectionType: "aws_ssm", AWSRegion: "bad region", AWSInstanceID: "i-0123456789abcdef0"},
+		{ProjectID: "prj-1", Name: "AWS", ConnectionType: "aws_ssm", AWSRegion: "ap-southeast-2", AWSInstanceID: "not-an-instance"},
+	}
+	for _, input := range cases {
+		if _, err := service.Create(context.Background(), "org-a", input); err == nil {
+			t.Fatalf("expected invalid AWS SSM target to be rejected: %#v", input)
+		}
+	}
+}

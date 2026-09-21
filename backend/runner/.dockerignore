@@ -1,0 +1,9 @@
+.git
+.gitignore
+.env
+.env.*
+*.pem
+*.key
+bin/
+coverage.out
+**/*_test.go

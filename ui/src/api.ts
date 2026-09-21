@@ -1,0 +1,114 @@
+export type Principal={userId:string;email:string;organizationId:string;organizationName:string;role:'owner'|'member'};
+export type AuthSession={token:string;expiresAt:string;principal:Principal};
+export type User={id:string;email:string;createdAt:string};
+export type Project={id:string;name:string;description?:string;createdAt:string};
+export type Environment={id:string;projectId:string;name:string;type:string;connectionType:string;runnerUrl?:string;sshHost?:string;sshPort?:number;sshUser?:string;healthUrl?:string;awsRegion?:string;awsInstanceId?:string;os:string;hostname:string;cpu:string;memory:string;disk:string;containers:string[];capabilities:string[]};
+export type Evidence={source:string;output:string;success:boolean;occurredAt:string;durationMs:number};
+export type TimelineEvent={source:string;kind:string;summary:string;url?:string;occurredAt:string};
+export type InvestigationResult={summary:string;confidence:string;probableRootCause:string;recommendedAction:string;evidence:Evidence[]};
+export type InvestigationProgressEvent={stage:string;message:string;evidence?:Evidence;result?:InvestigationResult;toolCalls:number;evidenceCount:number;elapsedMs:number};
+export type Incident={id:string;environmentId:string;question:string;status:string;summary:string;rootCause:string;confidence:string;recommendedAction:string;evidence:Evidence[];timeline:TimelineEvent[];createdAt:string};
+export type VerificationResult={healthy:boolean;summary:string;evidence:Evidence[]};
+export type ActionRequest={id:string;incidentId?:string;environmentId:string;action:string;target:string;reason:string;status:string;approvedBy?:string;rejectedBy?:string;result?:string;verification:VerificationResult;executionStage:string;durationMs:number;createdAt:string;startedAt?:string;executedAt?:string;completedAt?:string};
+export type AuditEvent={id:string;environmentId:string;actor:string;eventType:string;detail:string;success:boolean;actionId?:string;tool?:string;target?:string;approval?:string;durationMs:number;result?:string;createdAt:string};
+export type RepositoryIntegration={id:string;environmentId:string;provider:string;owner:string;repo:string;authMode:'github_app'|'token';installationId?:number};
+export type GitHubIntegrationSetup={integration:RepositoryIntegration;webhookPath:string;webhookSecret:string};
+export type RunnerEnrollment={environment:Environment;runnerId:string;runnerToken:string;controlPath:string};
+export type CreateEnvironmentInput={projectId:string;name:string;type:string;connectionType:'runner'|'ssh'|'aws_ssm';runnerUrl?:string;sshHost?:string;sshPort?:number;sshUser?:string;sshHostKeyFingerprint?:string;sshPrivateKey?:string;sshPassphrase?:string;healthUrl?:string;awsRegion?:string;awsInstanceId?:string};
+
+const API_URL=import.meta.env.VITE_XENTRA_API_URL??'http://localhost:8080';
+const RUNNER_CONTROL_URL=import.meta.env.VITE_XENTRA_RUNNER_CONTROL_URL??'http://localhost:8081';
+const TOKEN_KEY='xentra_session';
+let authToken=typeof window!=='undefined'?window.sessionStorage.getItem(TOKEN_KEY):null;
+
+function setToken(token:string|null){
+ authToken=token;
+ if(typeof window==='undefined')return;
+ if(token)window.sessionStorage.setItem(TOKEN_KEY,token);
+ else window.sessionStorage.removeItem(TOKEN_KEY);
+}
+
+async function request<T>(path:string,init?:RequestInit):Promise<T>{
+ const headers:Record<string,string>={'Content-Type':'application/json'};
+ if(authToken)headers.Authorization=`Bearer ${authToken}`;
+ const response=await fetch(`${API_URL}${path}`,{...init,headers:{...headers,...(init?.headers??{})}});
+ if(!response.ok){
+  const payload=await response.json().catch(()=>({error:'Request failed'}));
+  throw new Error(payload.error??`Request failed with ${response.status}`);
+ }
+ if(response.status===204)return undefined as T;
+ return response.json() as Promise<T>;
+}
+
+async function investigateStream(
+ environmentId:string,
+ question:string,
+ onProgress:(event:InvestigationProgressEvent)=>void,
+):Promise<InvestigationResult>{
+ const headers:Record<string,string>={'Content-Type':'application/json'};
+ if(authToken)headers.Authorization=`Bearer ${authToken}`;
+ const response=await fetch(`${API_URL}/api/investigations/stream`,{
+  method:'POST',headers,body:JSON.stringify({environmentId,question}),
+ });
+ if(!response.ok){
+  const payload=await response.json().catch(()=>({error:'Investigation stream failed'}));
+  throw new Error(payload.error??`Investigation stream failed with ${response.status}`);
+ }
+ if(!response.body)throw new Error('Streaming response body is unavailable');
+
+ const reader=response.body.getReader();
+ const decoder=new TextDecoder();
+ let buffer='';
+ let finalResult:InvestigationResult|null=null;
+
+ while(true){
+  const{done,value}=await reader.read();
+  if(value)buffer+=decoder.decode(value,{stream:!done});
+  let boundary=buffer.indexOf('\n\n');
+  while(boundary>=0){
+   const frame=buffer.slice(0,boundary).replace(/\r/g,'');
+   buffer=buffer.slice(boundary+2);
+   const data=frame.split('\n')
+    .filter(line=>line.startsWith('data: '))
+    .map(line=>line.slice(6))
+    .join('\n');
+   if(data){
+    const event=JSON.parse(data) as InvestigationProgressEvent;
+    onProgress(event);
+    if(event.stage==='error')throw new Error(event.message||'Investigation failed');
+    if(event.result)finalResult=event.result;
+   }
+   boundary=buffer.indexOf('\n\n');
+  }
+  if(done)break;
+ }
+ if(!finalResult)throw new Error('Investigation stream ended without a final finding');
+ return finalResult;
+}
+
+export const api={
+ hasToken:()=>Boolean(authToken),
+ setToken,
+ register:(email:string,password:string,organizationName:string)=>request<AuthSession>('/api/auth/register',{method:'POST',body:JSON.stringify({email,password,organizationName})}),
+ login:(email:string,password:string)=>request<AuthSession>('/api/auth/login',{method:'POST',body:JSON.stringify({email,password})}),
+ logout:()=>request<void>('/api/auth/logout',{method:'POST'}),
+ me:()=>request<Principal>('/api/auth/me'),
+ createMember:(email:string,password:string)=>request<User>('/api/auth/members',{method:'POST',body:JSON.stringify({email,password})}),
+ listProjects:()=>request<Project[]>('/api/projects'),
+ createProject:(name:string,description:string)=>request<Project>('/api/projects',{method:'POST',body:JSON.stringify({name,description})}),
+ listEnvironments:()=>request<Environment[]>('/api/environments'),
+ createEnvironment:(input:CreateEnvironmentInput)=>request<Environment>('/api/environments',{method:'POST',body:JSON.stringify(input)}),
+ createRunnerEnrollment:(projectId:string,name:string,type:string,healthUrl:string)=>request<RunnerEnrollment>('/api/runner-enrollments',{method:'POST',body:JSON.stringify({projectId,name,type,healthUrl})}),
+ investigate:(environmentId:string,question:string)=>request<InvestigationResult>('/api/investigations',{method:'POST',body:JSON.stringify({environmentId,question})}),
+ investigateStream,
+ connectGitHub:(environmentId:string,owner:string,repo:string,authMode:'github_app'|'token',accessToken:string)=>request<GitHubIntegrationSetup>('/api/integrations/github',{method:'POST',body:JSON.stringify({environmentId,owner,repo,authMode,accessToken})}),
+ listIncidents:()=>request<Incident[]>('/api/incidents'),
+ createIncident:(environmentId:string,question:string)=>request<Incident>('/api/incidents',{method:'POST',body:JSON.stringify({environmentId,question})}),
+ proposeAction:(input:{incidentId?:string;environmentId:string;action:string;target:string;reason:string})=>request<ActionRequest>('/api/actions',{method:'POST',body:JSON.stringify(input)}),
+ getAction:(id:string)=>request<ActionRequest>(`/api/actions/${id}`),
+ approveAction:(id:string)=>request<ActionRequest>(`/api/actions/${id}/approve`,{method:'POST'}),
+ rejectAction:(id:string)=>request<ActionRequest>(`/api/actions/${id}/reject`,{method:'POST'}),
+ listAudit:()=>request<AuditEvent[]>('/api/audit'),
+ baseUrl:()=>API_URL,
+ runnerControlUrl:()=>RUNNER_CONTROL_URL
+};

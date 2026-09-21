@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xentra.dev/contracts/tool-request.schema.json",
+  "title": "ToolRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tool", "arguments"],
+  "properties": {
+    "tool": { "type": "string", "minLength": 1 },
+    "arguments": { "type": "object" }
+  }
+}

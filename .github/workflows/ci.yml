@@ -1,0 +1,141 @@
+name: CI
+on:
+  pull_request:
+    branches: [development, main]
+  push:
+    branches: [development]
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [backend/control-plane, backend/runner]
+    defaults:
+      run:
+        working-directory: ${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+      - run: go mod tidy
+      - run: go test ./...
+      - run: go vet ./...
+
+  python:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/ai-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install -e '.[test]'
+      - run: pytest -q
+
+  ui:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm run build
+
+  integration:
+    runs-on: ubuntu-latest
+    needs: [go, python, ui]
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: xentra
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d xentra"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      XENTRA_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/xentra?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install -e ./backend/ai-service
+      - run: cd backend/control-plane && go mod tidy
+      - run: cd backend/runner && go mod tidy
+      - name: Generate integration master key
+        run: echo "XENTRA_MASTER_KEY=$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
+      - name: Run real infrastructure smoke
+        run: |
+          chmod +x tests/integration/smoke.sh
+          tests/integration/smoke.sh
+      - name: Upload service logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-service-logs
+          path: |
+            /tmp/xentra-ai.log
+            /tmp/xentra-runner.log
+            /tmp/xentra-control.log
+            /tmp/xentra-otel.jsonl
+
+  containers:
+    runs-on: ubuntu-latest
+    needs: [go, python, ui]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build control-plane image
+        run: docker build -t xentra-control:test ./backend/control-plane
+      - name: Build runner image
+        run: docker build -t xentra-runner:test ./backend/runner
+      - name: Build AI service image
+        run: docker build -t xentra-ai:test ./backend/ai-service
+      - name: Build UI image
+        run: docker build -t xentra-ui:test ./ui
+      - name: Validate production compose
+        run: |
+          cp .env.example .env
+          mkdir -p secrets
+          touch secrets/github_app_private_key.pem secrets/runner_control_server_cert.pem secrets/runner_control_server_key.pem secrets/runner_control_client_ca.pem
+          docker compose --env-file .env -f docker-compose.prod.yml config >/dev/null
+          XENTRA_OTEL_ENDPOINT=http://otel-collector:4318 docker compose --env-file .env --profile observability -f docker-compose.prod.yml config >/dev/null
+      - name: Smoke production compose startup
+        run: |
+          set -euo pipefail
+          export POSTGRES_PASSWORD="ci-postgres-password"
+          export XENTRA_MASTER_KEY="$(openssl rand -base64 32 | tr -d '\n')"
+          export XENTRA_METRICS_TOKEN="ci-metrics-token"
+          export XENTRA_ALLOWED_ORIGINS="http://127.0.0.1:8088"
+          export XENTRA_RUNNER_CONTROL_ADDR=""
+          trap 'docker compose down -v --remove-orphans' EXIT
+          docker compose up -d --build
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8088/healthz >/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+          curl --fail --silent http://127.0.0.1:8088/healthz
+          curl --fail --silent \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"ci@example.com","password":"ci-password-123","organizationName":"CI"}' \
+            http://127.0.0.1:8088/api/auth/register >/dev/null
+          docker compose ps

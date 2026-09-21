@@ -1,0 +1,1 @@
+ALTER TABLE environments ADD COLUMN IF NOT EXISTS health_url TEXT NOT NULL DEFAULT '';

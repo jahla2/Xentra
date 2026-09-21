@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xentra.dev/contracts/tool-result.schema.json",
+  "title": "ToolResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tool", "success", "output"],
+  "properties": {
+    "tool": { "type": "string" },
+    "success": { "type": "boolean" },
+    "output": { "type": "string" },
+    "error": { "type": "string" }
+  }
+}

@@ -1,0 +1,21 @@
+[project]
+name = "xentra-ai-service"
+version = "0.2.0"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115",
+  "httpx>=0.27",
+  "pydantic>=2.0",
+  "uvicorn>=0.30",
+  "opentelemetry-sdk>=1.44.0,<1.45",
+  "opentelemetry-exporter-otlp-proto-http>=1.44.0,<1.45",
+  "opentelemetry-instrumentation-fastapi>=0.65b0,<0.66",
+  "opentelemetry-instrumentation-httpx>=0.65b0,<0.66"
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

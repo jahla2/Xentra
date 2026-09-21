@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InvestigationResult",
+  "type": "object",
+  "required": ["summary", "confidence", "probableRootCause", "recommendedAction", "evidence"],
+  "properties": {
+    "summary": {"type": "string"},
+    "confidence": {"enum": ["low", "medium", "high"]},
+    "probableRootCause": {"type": "string"},
+    "recommendedAction": {"type": "string"},
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source", "output", "success", "occurredAt", "durationMs"],
+        "properties": {
+          "source": {"type": "string"},
+          "output": {"type": "string"},
+          "success": {"type": "boolean"},
+          "occurredAt": {"type": "string", "format": "date-time"},
+          "durationMs": {"type": "integer", "minimum": 0}
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

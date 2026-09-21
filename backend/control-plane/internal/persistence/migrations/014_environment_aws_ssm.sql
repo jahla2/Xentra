@@ -1,0 +1,3 @@
+ALTER TABLE environments
+    ADD COLUMN IF NOT EXISTS aws_region TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS aws_instance_id TEXT NOT NULL DEFAULT '';
