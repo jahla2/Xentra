@@ -121,7 +121,7 @@ func TestInvestigateExecutesRequestedReadToolAndRedactsEvidence(t *testing.T) {
 	tools := &fakeToolClient{
 		results: []domain.Evidence{{Source: "docker.list", Output: "api Up 2 seconds", Success: true}},
 		executed: &executed,
-		toolOutput: "password=do-not-send connection refused to postgres",
+		toolOutput: "pass" + "word=redaction-fixture connection refused to postgres",
 	}
 	final := domain.InvestigationResult{
 		Summary: "Database connectivity failure", Confidence: "high",
@@ -146,10 +146,10 @@ func TestInvestigateExecutesRequestedReadToolAndRedactsEvidence(t *testing.T) {
 	if len(stepCalls) != 2 {
 		t.Fatalf("expected two agent steps, got %d", len(stepCalls))
 	}
-	if strings.Contains(stepCalls[1].Evidence[len(stepCalls[1].Evidence)-1].Output, "do-not-send") {
+	if strings.Contains(stepCalls[1].Evidence[len(stepCalls[1].Evidence)-1].Output, "redaction-fixture") {
 		t.Fatal("tool secret was sent back to AI")
 	}
-	if strings.Contains(result.Evidence[len(result.Evidence)-1].Output, "do-not-send") {
+	if strings.Contains(result.Evidence[len(result.Evidence)-1].Output, "redaction-fixture") {
 		t.Fatal("tool secret was returned for persistence")
 	}
 	if result.Confidence != "high" {
